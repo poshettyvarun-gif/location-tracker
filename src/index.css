@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --radius: 0.9rem;
+
+  --color-navy-deep: oklch(19% 0.062 262);
+  --color-navy: oklch(28% 0.088 258);
+  --color-azure: oklch(55% 0.16 250);
+  --color-sky: oklch(75% 0.1 236);
+  --color-gold: oklch(78% 0.13 82);
+
+  --color-background: oklch(97% 0.008 240);
+  --color-foreground: oklch(22% 0.05 258);
+  --color-card: oklch(100% 0 0);
+  --color-card-foreground: oklch(22% 0.05 258);
+  --color-primary: oklch(36% 0.13 258);
+  --color-primary-foreground: oklch(98.5% 0.01 240);
+  --color-accent: oklch(55% 0.16 250);
+  --color-accent-foreground: oklch(98.5% 0.01 240);
+  --color-muted: oklch(95% 0.014 240);
+  --color-muted-foreground: oklch(52% 0.035 254);
+  --color-destructive: oklch(55% 0.22 27);
+  --color-border: oklch(90% 0.018 245);
+  --color-input: oklch(90% 0.018 245);
+
+  --font-sans: Manrope, ui-sans-serif, system-ui, sans-serif;
+  --font-display: Sora, ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-soft: 0 18px 40px -22px oklch(28% 0.088 258 / 0.55);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@utility surface-navy {
+  background-image: linear-gradient(
+    140deg,
+    var(--color-navy-deep),
+    var(--color-navy) 55%,
+    var(--color-azure)
+  );
+}
