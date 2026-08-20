@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Camera, LogOut, MapPin, RotateCcw, Shield, ShieldCheck, VideoOff } from "lucide-react";
+import { Camera, CheckCircle2, LogOut, MapPin, RotateCcw, Shield, ShieldCheck, VideoOff } from "lucide-react";
 import { useAuth, apiFetch, type EmployeeUser } from "../auth/AuthContext";
 
 const SHIFT_LABEL: Record<string, string> = {
@@ -49,13 +50,17 @@ type LocationState =
   | { status: "ready"; lat: number; lng: number; accuracy: number }
   | { status: "error"; message: string };
 
+const RETURN_TO_LOGIN_DELAY_MS = 1800;
+
 export default function EmployeeDashboard() {
-  const { user, refresh, logout } = useAuth();
+  const { user, refresh, logout, returnToLogin } = useAuth();
+  const navigate = useNavigate();
   const emp = user as EmployeeUser;
 
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [capturedPhoto, setCapturedPhoto] = useState<{ file: File; previewUrl: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [checkInSuccess, setCheckInSuccess] = useState<{ verified: boolean } | null>(null);
   const [logoutBlocked, setLogoutBlocked] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [location, setLocation] = useState<LocationState>({ status: "locating" });
@@ -232,10 +237,15 @@ export default function EmployeeDashboard() {
       retake();
       if (fix) {
         setLocation({ status: "ready", ...fix });
-        toast.success("Checked in — your location was recorded");
-      } else {
-        toast.warning("Checked in without location — flagged to admin as unverified");
       }
+      // The success screen itself communicates the outcome, so no toast here
+      // — stacking a toast under an overlay that's about to navigate away
+      // just gets lost.
+      setCheckInSuccess({ verified: Boolean(fix) });
+      setTimeout(() => {
+        returnToLogin();
+        navigate("/login", { replace: true });
+      }, RETURN_TO_LOGIN_DELAY_MS);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Check-in failed");
     } finally {
@@ -253,6 +263,23 @@ export default function EmployeeDashboard() {
     } finally {
       setLoggingOut(false);
     }
+  }
+
+  if (checkInSuccess) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center">
+        <div className="animate-check-pop flex h-20 w-20 items-center justify-center rounded-full bg-[#3f8f5f]/15">
+          <CheckCircle2 className="h-11 w-11 text-[#3f8f5f]" />
+        </div>
+        <h1 className="mt-5 font-display text-xl font-semibold text-foreground">Checked in successfully</h1>
+        <p className="mt-1.5 max-w-xs text-sm text-muted-foreground">
+          {checkInSuccess.verified
+            ? "Your photo and location were recorded."
+            : "Your photo was recorded — location was flagged as unverified."}
+        </p>
+        <p className="mt-6 text-xs text-muted-foreground">Returning to sign in…</p>
+      </div>
+    );
   }
 
   return (
