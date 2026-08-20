@@ -110,10 +110,15 @@ export default function EmployeeDashboard() {
     }
   }
 
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+
   // The camera opens as soon as this screen loads — no upload option.
   useEffect(() => {
     startCamera();
-    return () => streamRef.current?.getTracks().forEach((t) => t.stop());
+    return stopCamera;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -235,6 +240,7 @@ export default function EmployeeDashboard() {
       await apiFetch("/api/duty/checkin", { method: "POST", body: form });
       await refresh();
       retake();
+      stopCamera(); // release the camera the instant the check-in lands, not at eventual unmount
       if (fix) {
         setLocation({ status: "ready", ...fix });
       }
