@@ -6,6 +6,8 @@ export interface EmployeeUser {
   name: string;
   username: string;
   role: "employee";
+  designation: string | null;
+  profilePhotoUrl: string | null;
   shiftSlot: "morning" | "afternoon" | "night" | null;
   assignedPlace: string | null;
   onDuty: boolean;

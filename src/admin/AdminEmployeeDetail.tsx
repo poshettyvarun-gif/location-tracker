@@ -131,9 +131,26 @@ export default function AdminEmployeeDetail() {
       </Link>
 
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="break-words font-display text-xl font-semibold text-foreground sm:text-2xl">{emp.name}</h1>
-          <p className="text-sm text-muted-foreground">{emp.code} · {emp.username}</p>
+        <div className="flex min-w-0 items-center gap-3">
+          {emp.profilePhotoUrl ? (
+            <img src={emp.profilePhotoUrl} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-azure/15 text-lg font-semibold text-azure">
+              {emp.name
+                .split(" ")
+                .map((p) => p[0])
+                .slice(0, 2)
+                .join("")
+                .toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0">
+            <h1 className="break-words font-display text-xl font-semibold text-foreground sm:text-2xl">{emp.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              {emp.code} · {emp.username}
+              {emp.designation ? ` · ${emp.designation}` : ""}
+            </p>
+          </div>
         </div>
         <span
           className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${

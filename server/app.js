@@ -41,6 +41,8 @@ function publicEmployee(e) {
     name: e.name,
     username: e.username,
     role: e.role,
+    designation: e.designation ?? null,
+    profilePhotoUrl: e.profilePhotoId ? `/api/photos/${e.profilePhotoId}` : null,
     shiftSlot: e.shiftSlot,
     assignedPlace: e.assignedPlace,
     onDuty: e.onDuty,
@@ -216,25 +218,39 @@ app.get(
   }),
 );
 
-/** Admin creates an employee account directly — no env vars, no seed list, no redeploy. */
+/**
+ * Admin creates an employee account directly — no env vars, no seed list, no
+ * redeploy. Multipart because the profile photo (optional) rides along with
+ * the form fields in one request.
+ */
 app.post(
   "/api/admin/employees",
   auth,
   requireAdmin,
+  upload.single("photo"),
   wrap(async (req, res) => {
-    const { name, username, password, code } = req.body || {};
+    const { name, username, password, code, designation } = req.body || {};
     if (!name?.trim() || !username?.trim() || !password) {
       return res.status(400).json({ error: "Name, username, and password are required" });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
+
+    let emp;
     try {
-      const emp = await createEmployee({ name, username, password, code });
-      res.status(201).json(publicEmployee(emp));
+      emp = await createEmployee({ name, username, password, code, designation });
     } catch (err) {
-      res.status(409).json({ error: err.message });
+      return res.status(409).json({ error: err.message });
     }
+
+    if (req.file) {
+      const photoId = `profile-${emp.id}-${Date.now()}`;
+      await savePhoto(photoId, req.file.buffer, req.file.mimetype || "image/jpeg");
+      emp = await updateEmployee(emp.id, { profilePhotoId: photoId });
+    }
+
+    res.status(201).json(publicEmployee(emp));
   }),
 );
 

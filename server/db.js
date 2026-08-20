@@ -45,6 +45,7 @@ const COLUMN_MAP = {
   onDuty: "on_duty",
   lastLocation: "last_location",
   lastCheckIn: "last_check_in",
+  profilePhotoId: "profile_photo_id",
 };
 
 // `role` is implied by which table a row lives in (admins vs employees), so
@@ -68,6 +69,8 @@ function fromEmployeeRow(row) {
     username: row.username,
     passwordHash: row.password_hash,
     role: "employee",
+    designation: row.designation,
+    profilePhotoId: row.profile_photo_id,
     shiftSlot: row.shift_slot,
     assignedPlace: row.assigned_place,
     onDuty: row.on_duty,
@@ -225,7 +228,7 @@ export async function getEmployee(id) {
  * creation time. This is the only way employees come into existence now —
  * no seed list, no per-employee env vars, no fixed count.
  */
-export async function createEmployee({ name, username, password, code }) {
+export async function createEmployee({ name, username, password, code, designation }) {
   await ensureSeeded();
   const employee = {
     id: `emp-${crypto.randomUUID()}`,
@@ -234,6 +237,8 @@ export async function createEmployee({ name, username, password, code }) {
     username: username.trim(),
     passwordHash: bcrypt.hashSync(password, 10),
     role: "employee",
+    designation: designation?.trim() || null,
+    profilePhotoId: null,
     shiftSlot: null,
     assignedPlace: null,
     onDuty: false,
@@ -271,11 +276,12 @@ export async function updateEmployee(id, patch) {
   return data ? fromEmployeeRow(data) : null;
 }
 
-/** Permanently removes the employee's account, session, and check-in photo. Cannot be undone. */
+/** Permanently removes the employee's account, session, check-in photo, and profile photo. Cannot be undone. */
 export async function deleteEmployee(id) {
   const existing = await getEmployee(id);
   if (!existing) return false;
   if (existing.lastCheckIn?.photoId) await deletePhoto(existing.lastCheckIn.photoId);
+  if (existing.profilePhotoId) await deletePhoto(existing.profilePhotoId);
 
   if (!isSupabaseConfigured) {
     mem.employees.delete(id);

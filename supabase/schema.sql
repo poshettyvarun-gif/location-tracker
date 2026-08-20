@@ -20,6 +20,8 @@ create table if not exists public.employees (
   name text not null,
   username text unique not null,
   password_hash text not null,
+  designation text,
+  profile_photo_id text,
   shift_slot text check (shift_slot in ('morning', 'afternoon', 'night')),
   assigned_place text,
   on_duty boolean not null default false,
@@ -27,6 +29,11 @@ create table if not exists public.employees (
   last_check_in jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Added after the initial release — safe no-ops on a fresh table that
+-- already has these columns from the create table above.
+alter table public.employees add column if not exists designation text;
+alter table public.employees add column if not exists profile_photo_id text;
 
 create table if not exists public.sessions (
   token text primary key,
