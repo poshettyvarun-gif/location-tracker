@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight, MapPin, Trash2 } from "lucide-react";
+import { ChevronRight, MapPin, Trash2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "../auth/AuthContext";
 import type { EmployeeUser } from "../auth/AuthContext";
@@ -16,6 +16,7 @@ const POLL_MS = 8000;
 export default function AdminOverview() {
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [resettingId, setResettingId] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,12 +61,31 @@ export default function AdminOverview() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 md:px-10">
-      <header className="mb-8">
-        <h1 className="font-display text-2xl font-semibold text-foreground">Employees</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {onDutyCount} of {employees.length} on duty right now.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-semibold text-foreground">Employees</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {onDutyCount} of {employees.length} on duty right now.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+        >
+          <UserPlus className="h-4 w-4" />
+          Add employee
+        </button>
       </header>
+
+      {showAddForm && (
+        <AddEmployeeForm
+          onClose={() => setShowAddForm(false)}
+          onCreated={(emp) => {
+            setEmployees((prev) => [...prev, emp]);
+            setShowAddForm(false);
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {employees.map((e) => (
@@ -111,7 +131,95 @@ export default function AdminOverview() {
             </div>
           </div>
         ))}
+
+        {employees.length === 0 && (
+          <p className="col-span-full text-sm text-muted-foreground">
+            No employees yet — click "Add employee" to create the first account.
+          </p>
+        )}
       </div>
     </div>
+  );
+}
+
+function AddEmployeeForm({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (emp: EmployeeUser) => void;
+}) {
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const emp = await apiFetch("/api/admin/employees", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim(), username: username.trim(), password }),
+      });
+      toast.success(`${emp.name} created — username "${emp.username}"`);
+      onCreated(emp);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create employee");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="mb-6 rounded-2xl border border-border bg-card p-5 shadow-soft"
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="font-display text-sm font-semibold text-card-foreground">New employee</h2>
+        <button type="button" onClick={onClose} className="rounded-lg p-1 text-muted-foreground hover:bg-muted">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Choose their username and password now — this is exactly what they'll use to sign in. Tell
+        it to them directly; there's no separate invite step.
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <input
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Full name"
+          className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+        />
+        <input
+          required
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder="Username"
+          autoCapitalize="off"
+          autoCorrect="off"
+          className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+        />
+        <input
+          required
+          minLength={6}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password (6+ characters)"
+          className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={submitting}
+        className="mt-4 flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+      >
+        <UserPlus className="h-4 w-4" />
+        {submitting ? "Creating…" : "Create employee"}
+      </button>
+    </form>
   );
 }

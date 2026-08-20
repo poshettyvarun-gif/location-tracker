@@ -11,6 +11,7 @@ import {
   destroySession,
   listEmployees,
   getEmployee,
+  createEmployee,
   updateEmployee,
   deleteEmployee,
   nextSlotOccupantOnDuty,
@@ -212,6 +213,28 @@ app.get(
   wrap(async (req, res) => {
     const employees = await listEmployees();
     res.json(employees.map(publicEmployee));
+  }),
+);
+
+/** Admin creates an employee account directly — no env vars, no seed list, no redeploy. */
+app.post(
+  "/api/admin/employees",
+  auth,
+  requireAdmin,
+  wrap(async (req, res) => {
+    const { name, username, password, code } = req.body || {};
+    if (!name?.trim() || !username?.trim() || !password) {
+      return res.status(400).json({ error: "Name, username, and password are required" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    try {
+      const emp = await createEmployee({ name, username, password, code });
+      res.status(201).json(publicEmployee(emp));
+    } catch (err) {
+      res.status(409).json({ error: err.message });
+    }
   }),
 );
 

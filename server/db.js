@@ -13,55 +13,27 @@ export function nextSlot(slot) {
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
-const NUMBER_WORDS = [
-  null, "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-  "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty",
-];
-const EMPLOYEE_COUNT = 20;
-
 /**
- * Seed credentials. Overridable by env vars so the deployed instance isn't
- * running the passwords that are committed to the repo. The first three hold
- * the actual shift relay (morning/afternoon/night); the rest seed as
- * unassigned reserves an admin can put on a shift later.
+ * Three fixed admin accounts, seeded once. Employees are NOT seeded from env
+ * vars at all — an admin creates them on demand from the dashboard, choosing
+ * the username/password right there. That's the whole point of this design:
+ * it doesn't matter how many employees exist, nothing about adding one
+ * touches environment variables or a redeploy.
  */
-const SEED_EMPLOYEES = Array.from({ length: EMPLOYEE_COUNT }, (_, i) => {
-  const n = i + 1;
-  return {
-    id: `emp-${n}`,
-    code: `PC-10${String(n).padStart(2, "0")}`,
-    name: `Employee ${NUMBER_WORDS[n]}`,
-    username: `employee${n}`,
-    env: `EMP${n}_PASSWORD`,
-    fallback: `Emp${n}#2026`,
-    shiftSlot: n === 1 ? "morning" : n === 2 ? "afternoon" : n === 3 ? "night" : null,
-  };
-});
+const SEED_ADMINS = [
+  { id: "admin-1", name: "Administrator One", usernameEnv: "ADMIN_USERNAME", usernameFallback: "admin", passwordEnv: "ADMIN_PASSWORD", passwordFallback: "Admin#2026" },
+  { id: "admin-2", name: "Administrator Two", usernameEnv: "ADMIN2_USERNAME", usernameFallback: "admin2", passwordEnv: "ADMIN2_PASSWORD", passwordFallback: "Admin2#2026" },
+  { id: "admin-3", name: "Administrator Three", usernameEnv: "ADMIN3_USERNAME", usernameFallback: "admin3", passwordEnv: "ADMIN3_PASSWORD", passwordFallback: "Admin3#2026" },
+];
 
-function freshAdmin() {
-  return {
-    id: "admin-1",
+function freshAdmins() {
+  return SEED_ADMINS.map((a) => ({
+    id: a.id,
     code: "ADMIN",
-    name: "Administrator",
-    username: process.env.ADMIN_USERNAME || "admin",
-    passwordHash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || "Admin#2026", 10),
+    name: a.name,
+    username: process.env[a.usernameEnv] || a.usernameFallback,
+    passwordHash: bcrypt.hashSync(process.env[a.passwordEnv] || a.passwordFallback, 10),
     role: "admin",
-  };
-}
-
-function freshEmployees() {
-  return SEED_EMPLOYEES.map((e) => ({
-    id: e.id,
-    code: e.code,
-    name: e.name,
-    username: e.username,
-    passwordHash: bcrypt.hashSync(process.env[e.env] || e.fallback, 10),
-    role: "employee",
-    shiftSlot: e.shiftSlot,
-    assignedPlace: null,
-    onDuty: false,
-    lastLocation: null,
-    lastCheckIn: null,
   }));
 }
 
@@ -115,8 +87,8 @@ function fromAdminRow(row) {
   };
 }
 
-function throwIfError({ error }) {
-  if (error) throw new Error(`Supabase: ${error.message}`);
+function isUniqueViolation(error) {
+  return error?.code === "23505";
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +98,7 @@ function throwIfError({ error }) {
 // ---------------------------------------------------------------------------
 const mem = {
   seeded: false,
-  admin: null,
+  admins: new Map(),
   employees: new Map(),
   sessions: new Map(),
   photos: new Map(),
@@ -134,16 +106,15 @@ const mem = {
 
 function memSeed() {
   if (mem.seeded) return;
-  mem.admin = freshAdmin();
-  for (const e of freshEmployees()) mem.employees.set(e.id, e);
+  for (const a of freshAdmins()) mem.admins.set(a.id, a);
   mem.seeded = true;
 }
 
 // ---------------------------------------------------------------------------
-// Seeding — runs at most once per project, ever. Whether an employee exists
-// right now is irrelevant to this check: if admin permanently deletes one,
-// a later cold start must NOT bring it back, so this is gated on a single
-// "has this project ever been seeded" flag rather than "is the table empty".
+// Seeding — runs at most once per project, ever. Whether an admin exists
+// right now is irrelevant to this check: it's gated on a single "has this
+// project ever been seeded" flag, not "is the table empty" — so a later cold
+// start never resurrects an account someone deleted on purpose.
 // ---------------------------------------------------------------------------
 let seeding = null;
 
@@ -151,11 +122,8 @@ async function seedSupabase() {
   const { data } = await supabase.from("meta").select("value").eq("key", "seeded").maybeSingle();
   if (data?.value) return;
 
-  const { error: adminErr } = await supabase.from("admins").upsert(toRow(freshAdmin()));
-  if (adminErr) throw new Error(`Supabase seed (admin): ${adminErr.message}`);
-
-  const { error: empErr } = await supabase.from("employees").upsert(freshEmployees().map(toRow));
-  if (empErr) throw new Error(`Supabase seed (employees): ${empErr.message}`);
+  const { error: adminErr } = await supabase.from("admins").upsert(freshAdmins().map(toRow));
+  if (adminErr) throw new Error(`Supabase seed (admins): ${adminErr.message}`);
 
   const { error: metaErr } = await supabase.from("meta").upsert({ key: "seeded", value: true });
   if (metaErr) throw new Error(`Supabase seed (meta): ${metaErr.message}`);
@@ -174,7 +142,8 @@ export async function ensureSeeded() {
 export async function findUserByUsername(username) {
   await ensureSeeded();
   if (!isSupabaseConfigured) {
-    if (mem.admin?.username === username) return mem.admin;
+    const admin = [...mem.admins.values()].find((a) => a.username === username);
+    if (admin) return admin;
     return [...mem.employees.values()].find((e) => e.username === username) || null;
   }
 
@@ -187,16 +156,13 @@ export async function findUserByUsername(username) {
 export async function findUserById(id) {
   await ensureSeeded();
   if (!isSupabaseConfigured) {
-    if (id === "admin-1") return mem.admin;
-    return mem.employees.get(id) || null;
+    return mem.admins.get(id) || mem.employees.get(id) || null;
   }
 
-  if (id === "admin-1") {
-    const { data } = await supabase.from("admins").select("*").eq("id", id).maybeSingle();
-    return data ? fromAdminRow(data) : null;
-  }
-  const { data } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
-  return data ? fromEmployeeRow(data) : null;
+  const { data: admin } = await supabase.from("admins").select("*").eq("id", id).maybeSingle();
+  if (admin) return fromAdminRow(admin);
+  const { data: emp } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
+  return emp ? fromEmployeeRow(emp) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,11 +177,10 @@ export async function createSession(userId, role) {
     mem.sessions.set(token, { userId, role, expiresAt });
     return token;
   }
-  throwIfError(
-    await supabase
-      .from("sessions")
-      .insert({ token, user_id: userId, role, expires_at: new Date(expiresAt).toISOString() }),
-  );
+  const { error } = await supabase
+    .from("sessions")
+    .insert({ token, user_id: userId, role, expires_at: new Date(expiresAt).toISOString() });
+  if (error) throw new Error(`Supabase: ${error.message}`);
   return token;
 }
 
@@ -253,6 +218,43 @@ export async function getEmployee(id) {
   if (!isSupabaseConfigured) return mem.employees.get(id) || null;
   const { data } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
   return data ? fromEmployeeRow(data) : null;
+}
+
+/**
+ * Admin-initiated: creates one employee with a username/password chosen at
+ * creation time. This is the only way employees come into existence now —
+ * no seed list, no per-employee env vars, no fixed count.
+ */
+export async function createEmployee({ name, username, password, code }) {
+  await ensureSeeded();
+  const employee = {
+    id: `emp-${crypto.randomUUID()}`,
+    code: code?.trim() || `PC-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+    name: name.trim(),
+    username: username.trim(),
+    passwordHash: bcrypt.hashSync(password, 10),
+    role: "employee",
+    shiftSlot: null,
+    assignedPlace: null,
+    onDuty: false,
+    lastLocation: null,
+    lastCheckIn: null,
+  };
+
+  if (!isSupabaseConfigured) {
+    if ([...mem.employees.values()].some((e) => e.username === employee.username)) {
+      throw new Error("That username is already taken");
+    }
+    mem.employees.set(employee.id, employee);
+    return employee;
+  }
+
+  const { data, error } = await supabase.from("employees").insert(toRow(employee)).select().maybeSingle();
+  if (error) {
+    if (isUniqueViolation(error)) throw new Error("That username is already taken");
+    throw new Error(`Supabase: ${error.message}`);
+  }
+  return fromEmployeeRow(data);
 }
 
 export async function updateEmployee(id, patch) {

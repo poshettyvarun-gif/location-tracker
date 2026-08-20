@@ -80,8 +80,10 @@ the defaults.
 | --- | --- |
 | `SUPABASE_URL` | from step 3 |
 | `SUPABASE_SERVICE_ROLE_KEY` | from step 3 |
-| `ADMIN_PASSWORD` | a real password, not the default |
-| `EMP1_PASSWORD` … `EMP5_PASSWORD` | real passwords, not the defaults |
+| `ADMIN_PASSWORD`, `ADMIN2_PASSWORD`, `ADMIN3_PASSWORD` | real passwords, not the defaults |
+
+That's it — 5 variables total. Employees are **not** configured here; see
+"Login details" below for how those get created.
 
 See `.env.example` for the full list. Skipping the password vars leaves the
 app on the values published in this README — anyone who reads this file can
@@ -89,10 +91,10 @@ log in.
 
 ### 6. Redeploy
 
-The first request after deploy seeds the admin and five employees into
-Supabase (visible in **Table Editor** → `employees`). From then on, seeding
-never runs again for this project — deleting an employee is permanent even
-across future redeploys.
+The first request after deploy seeds the 3 admin accounts into Supabase
+(visible in **Table Editor** → `admins`). From then on, seeding never runs
+again for this project — deleting an account is permanent even across future
+redeploys.
 
 ### Why Supabase and not a file
 
@@ -111,29 +113,35 @@ enabled under System Settings → Privacy & Security → Location Services.
 
 ## Login details
 
-Seeds 1 admin + 20 employees. Username pattern is `employee1`…`employee20`;
-password pattern is `EmpN#2026` (e.g. `employee7` / `Emp7#2026`) — see
-`.env.example` for every `EMPn_PASSWORD` variable.
+Seeds **3 fixed admin accounts** and **zero employees**.
 
-| Role | Username | Password | Shift |
-| --- | --- | --- | --- |
-| Admin | `admin` | `Admin#2026` | — |
-| Employee | `employee1` | `Emp1#2026` | Morning (06:00–14:00) |
-| Employee | `employee2` | `Emp2#2026` | Afternoon (14:00–22:00) |
-| Employee | `employee3` | `Emp3#2026` | Night (22:00–06:00) |
-| Employee | `employee4` … `employee20` | `Emp4#2026` … `Emp20#2026` | Unassigned (reserve) |
+| Role | Username | Password |
+| --- | --- | --- |
+| Admin | `admin` | `Admin#2026` |
+| Admin | `admin2` | `Admin2#2026` |
+| Admin | `admin3` | `Admin3#2026` |
 
-Reserves can be put on a shift any time from an employee's detail page in the
-admin dashboard.
+**Change every one of these before any real deployment** via `ADMIN_PASSWORD` /
+`ADMIN2_PASSWORD` / `ADMIN3_PASSWORD` — the values above are published here
+and in the repo, so anyone who reads this file can log in on the defaults.
 
-**Change every one of these before any real deployment.** The values above are
-published here and in the repo, so anyone who reads this file can log in on
-the defaults.
+Employees don't have a seed list or env vars at all — as many as you need,
+created from the dashboard:
+
+1. Sign in as any admin → **Employees** → **Add employee**.
+2. Enter their name, and choose a username + password (6+ characters) right
+   there — that's the actual login you're handing them, not a placeholder.
+3. Tell the employee those credentials directly. There's no invite email and
+   no self-signup.
+4. Assign them a shift (morning/afternoon/night) from their detail page
+   whenever you want them in the relay — new employees start unassigned.
 
 ## How it works
 
 **Admin**
-- **Employees** (`/admin`) — every employee, on-duty status, shift, and assigned location.
+- **Employees** (`/admin`) — every employee, on-duty status, shift, and
+  assigned location, plus **Add employee** to create a new account (name,
+  username, password — no fixed count, no env var per person).
 - **Employee detail** (`/admin/employees/:id`) — live location on a map (polls
   every 5s), a text field to record the location you've assigned them (over
   radio/phone — this just logs it), shift assignment, their last check-in
