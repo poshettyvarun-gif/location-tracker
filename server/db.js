@@ -13,17 +13,30 @@ export function nextSlot(slot) {
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
+const NUMBER_WORDS = [
+  null, "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+  "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty",
+];
+const EMPLOYEE_COUNT = 20;
+
 /**
  * Seed credentials. Overridable by env vars so the deployed instance isn't
- * running the passwords that are committed to the repo.
+ * running the passwords that are committed to the repo. The first three hold
+ * the actual shift relay (morning/afternoon/night); the rest seed as
+ * unassigned reserves an admin can put on a shift later.
  */
-const SEED_EMPLOYEES = [
-  { id: "emp-1", code: "PC-1001", name: "Employee One", username: "employee1", env: "EMP1_PASSWORD", fallback: "Emp1#2026", shiftSlot: "morning" },
-  { id: "emp-2", code: "PC-1002", name: "Employee Two", username: "employee2", env: "EMP2_PASSWORD", fallback: "Emp2#2026", shiftSlot: "afternoon" },
-  { id: "emp-3", code: "PC-1003", name: "Employee Three", username: "employee3", env: "EMP3_PASSWORD", fallback: "Emp3#2026", shiftSlot: "night" },
-  { id: "emp-4", code: "PC-1004", name: "Employee Four", username: "employee4", env: "EMP4_PASSWORD", fallback: "Emp4#2026", shiftSlot: null },
-  { id: "emp-5", code: "PC-1005", name: "Employee Five", username: "employee5", env: "EMP5_PASSWORD", fallback: "Emp5#2026", shiftSlot: null },
-];
+const SEED_EMPLOYEES = Array.from({ length: EMPLOYEE_COUNT }, (_, i) => {
+  const n = i + 1;
+  return {
+    id: `emp-${n}`,
+    code: `PC-10${String(n).padStart(2, "0")}`,
+    name: `Employee ${NUMBER_WORDS[n]}`,
+    username: `employee${n}`,
+    env: `EMP${n}_PASSWORD`,
+    fallback: `Emp${n}#2026`,
+    shiftSlot: n === 1 ? "morning" : n === 2 ? "afternoon" : n === 3 ? "night" : null,
+  };
+});
 
 function freshAdmin() {
   return {

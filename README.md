@@ -111,17 +111,24 @@ enabled under System Settings → Privacy & Security → Location Services.
 
 ## Login details
 
+Seeds 1 admin + 20 employees. Username pattern is `employee1`…`employee20`;
+password pattern is `EmpN#2026` (e.g. `employee7` / `Emp7#2026`) — see
+`.env.example` for every `EMPn_PASSWORD` variable.
+
 | Role | Username | Password | Shift |
 | --- | --- | --- | --- |
 | Admin | `admin` | `Admin#2026` | — |
 | Employee | `employee1` | `Emp1#2026` | Morning (06:00–14:00) |
 | Employee | `employee2` | `Emp2#2026` | Afternoon (14:00–22:00) |
 | Employee | `employee3` | `Emp3#2026` | Night (22:00–06:00) |
-| Employee | `employee4` | `Emp4#2026` | Unassigned (reserve) |
-| Employee | `employee5` | `Emp5#2026` | Unassigned (reserve) |
+| Employee | `employee4` … `employee20` | `Emp4#2026` … `Emp20#2026` | Unassigned (reserve) |
 
-Change these before any real deployment — reassign shifts and update passwords
-from the admin dashboard / backend as needed.
+Reserves can be put on a shift any time from an employee's detail page in the
+admin dashboard.
+
+**Change every one of these before any real deployment.** The values above are
+published here and in the repo, so anyone who reads this file can log in on
+the defaults.
 
 ## How it works
 

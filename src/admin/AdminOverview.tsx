@@ -67,7 +67,7 @@ export default function AdminOverview() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {employees.map((e) => (
           /* The reset control is a sibling of the Link, not a child — a button
              nested inside an anchor is invalid and swallows the click. */
