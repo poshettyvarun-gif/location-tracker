@@ -60,17 +60,17 @@ export default function AdminOverview() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8 md:px-10">
-      <header className="mb-8 flex items-start justify-between gap-4">
+    <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">
+      <header className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-foreground">Employees</h1>
+          <h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">Employees</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {onDutyCount} of {employees.length} on duty right now.
           </p>
         </div>
         <button
           onClick={() => setShowAddForm(true)}
-          className="flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+          className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:shrink-0"
         >
           <UserPlus className="h-4 w-4" />
           Add employee

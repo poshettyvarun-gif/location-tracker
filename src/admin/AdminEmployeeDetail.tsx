@@ -124,19 +124,19 @@ export default function AdminEmployeeDetail() {
   const isLive = staleMs !== null && staleMs < 30000;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8 md:px-10">
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">
       <Link to="/admin" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" />
         Back to employees
       </Link>
 
-      <header className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-semibold text-foreground">{emp.name}</h1>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="break-words font-display text-xl font-semibold text-foreground sm:text-2xl">{emp.name}</h1>
           <p className="text-sm text-muted-foreground">{emp.code} · {emp.username}</p>
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
             emp.onDuty ? "bg-[#3f8f5f]/15 text-[#265c3b]" : "bg-muted text-muted-foreground"
           }`}
         >
@@ -255,8 +255,8 @@ export default function AdminEmployeeDetail() {
           )}
         </div>
         {emp.lastCheckIn ? (
-          <div className="flex items-center gap-4">
-            <img src={emp.lastCheckIn.photoUrl} alt="" className="h-24 w-24 rounded-xl object-cover" />
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            <img src={emp.lastCheckIn.photoUrl} alt="" className="h-24 w-24 shrink-0 rounded-xl object-cover" />
             <div className="text-sm text-muted-foreground">
               <p>{new Date(emp.lastCheckIn.at).toLocaleString()}</p>
               {emp.lastCheckIn.locationVerified && emp.lastCheckIn.lat != null && emp.lastCheckIn.lng != null ? (
@@ -289,17 +289,17 @@ export default function AdminEmployeeDetail() {
           history" above, this can't be undone and the record will not come back on its own —
           type their name to confirm.
         </p>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}
             placeholder={`Type "${emp.name}" to confirm`}
-            className="min-w-64 flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+            className="w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground sm:flex-1"
           />
           <button
             onClick={deleteEmployee}
             disabled={confirmName.trim() !== emp.name || deleting}
-            className="flex items-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >
             <Trash2 className="h-4 w-4" />
             {deleting ? "Deleting…" : "Delete employee permanently"}

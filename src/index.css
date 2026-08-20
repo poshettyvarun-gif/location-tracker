@@ -41,6 +41,17 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+
+  /* iOS Safari zooms the whole page in on focus if an input's computed
+     font-size is under 16px — most of our fields use text-sm (14px). This
+     overrides just the font-size so the layout/spacing classes are untouched. */
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
 }
 
 @utility surface-navy {

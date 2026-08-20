@@ -257,27 +257,27 @@ export default function EmployeeDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="flex items-center justify-between border-b border-border bg-card px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl surface-navy">
+      <header className="flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl surface-navy">
             <Shield className="h-5 w-5 text-gold" />
           </div>
-          <div>
-            <p className="font-display text-sm font-semibold text-card-foreground">{emp.name}</p>
-            <p className="text-xs text-muted-foreground">{emp.code} · {emp.username}</p>
+          <div className="min-w-0">
+            <p className="truncate font-display text-sm font-semibold text-card-foreground">{emp.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{emp.code} · {emp.username}</p>
           </div>
         </div>
         <button
           onClick={handleLogout}
           disabled={loggingOut}
-          className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
         >
           <LogOut className="h-4 w-4" />
           Log out
         </button>
       </header>
 
-      <main className="mx-auto max-w-2xl px-6 py-8">
+      <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-8">
         {logoutBlocked && (
           <div className="mb-6 flex items-start gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gold" />

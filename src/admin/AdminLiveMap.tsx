@@ -48,8 +48,8 @@ export default function AdminLiveMap() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-border bg-card px-6 py-4 md:px-10">
-        <h1 className="font-display text-2xl font-semibold text-foreground">Live Map</h1>
+      <header className="border-b border-border bg-card px-4 py-4 sm:px-6 md:px-10">
+        <h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">Live Map</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {withLocation.length} employee{withLocation.length === 1 ? "" : "s"} reporting a location.
         </p>
