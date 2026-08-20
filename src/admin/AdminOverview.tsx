@@ -108,21 +108,21 @@ export default function AdminOverview() {
             <tbody>
               {employees.map((e) => (
                 <tr key={e.id} className="border-b border-border last:border-0 hover:bg-muted/50">
-                  <td className="px-4 py-3">
-                    <Link to={`/admin/employees/${e.id}`} className="flex items-center gap-3">
+                  <td className="px-4 py-4">
+                    <Link to={`/admin/employees/${e.id}`} className="flex items-center gap-4">
                       <Avatar url={e.profilePhotoUrl} name={e.name} />
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-card-foreground">{e.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{e.username}</p>
+                        <p className="truncate text-base font-medium text-card-foreground">{e.name}</p>
+                        <p className="truncate text-sm text-muted-foreground">{e.username}</p>
                       </div>
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{e.code}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{e.designation || "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-4 text-muted-foreground">{e.code}</td>
+                  <td className="px-4 py-4 text-muted-foreground">{e.designation || "—"}</td>
+                  <td className="px-4 py-4 text-muted-foreground">
                     {e.shiftSlot ? SHIFT_LABEL[e.shiftSlot] : "Unassigned"}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-4">
                     <span
                       className={`inline-flex items-center gap-1.5 text-xs font-medium ${
                         e.onDuty ? "text-[#265c3b]" : "text-muted-foreground"
@@ -132,7 +132,7 @@ export default function AdminOverview() {
                       {e.onDuty ? "On duty" : "Off duty"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-4 py-4 text-muted-foreground">
                     {e.assignedPlace ? (
                       <span className="flex items-center gap-1 text-azure">
                         <MapPin className="h-3 w-3 shrink-0" />
@@ -142,7 +142,7 @@ export default function AdminOverview() {
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => resetEmployee(e)}
@@ -174,7 +174,7 @@ export default function AdminOverview() {
 
 function Avatar({ url, name }: { url: string | null; name: string }) {
   if (url) {
-    return <img src={url} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />;
+    return <img src={url} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" />;
   }
   const initials = name
     .split(" ")
@@ -183,8 +183,8 @@ function Avatar({ url, name }: { url: string | null; name: string }) {
     .join("")
     .toUpperCase();
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-azure/15 text-xs font-semibold text-azure">
-      {initials || <UserRound className="h-4 w-4" />}
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-azure/15 text-base font-semibold text-azure">
+      {initials || <UserRound className="h-6 w-6" />}
     </div>
   );
 }
