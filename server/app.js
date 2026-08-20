@@ -12,10 +12,12 @@ import {
   listEmployees,
   getEmployee,
   updateEmployee,
+  deleteEmployee,
   nextSlotOccupantOnDuty,
   employeeForSlot,
   savePhoto,
-  loadPhoto,
+  loadPhotoUrl,
+  loadPhotoBuffer,
   deletePhoto,
   SHIFT_SLOTS,
 } from "./db.js";
@@ -79,7 +81,7 @@ app.post(
     if (!user || !bcrypt.compareSync(password || "", user.passwordHash)) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
-    const token = await createSession(user.id);
+    const token = await createSession(user.id, user.role);
     // Logging in starts the shift — this is the event that relieves the previous
     // shift's officer to log out (see the handover check in /api/auth/logout).
     const current =
@@ -123,13 +125,17 @@ app.get(
 app.get(
   "/api/photos/:id",
   wrap(async (req, res) => {
-    const dataUrl = await loadPhoto(req.params.id);
-    if (!dataUrl) return res.status(404).json({ error: "Not found" });
-    const [meta, base64] = String(dataUrl).split(",");
-    const mime = /:(.*?);/.exec(meta)?.[1] || "image/jpeg";
-    res.setHeader("Content-Type", mime);
+    // Supabase Storage path: redirect to a short-lived signed URL rather than
+    // proxying the bytes through this function.
+    const signedUrl = await loadPhotoUrl(req.params.id);
+    if (signedUrl) return res.redirect(signedUrl);
+
+    // In-memory fallback (no Supabase configured): serve the buffer directly.
+    const raw = await loadPhotoBuffer(req.params.id);
+    if (!raw) return res.status(404).json({ error: "Not found" });
+    res.setHeader("Content-Type", raw.mime);
     res.setHeader("Cache-Control", "private, max-age=86400");
-    res.send(Buffer.from(base64, "base64"));
+    res.send(raw.buffer);
   }),
 );
 
@@ -146,7 +152,7 @@ app.post(
 
     const photoId = `${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     const mime = req.file.mimetype || "image/jpeg";
-    await savePhoto(photoId, `data:${mime};base64,${req.file.buffer.toString("base64")}`);
+    await savePhoto(photoId, req.file.buffer, mime);
 
     // Replace any previous photo so the store doesn't grow without bound.
     const previous = req.user.lastCheckIn?.photoId;
@@ -300,6 +306,22 @@ app.post(
     const emp = await clearEmployeeStatus(req.params.id, { alsoEndShift: true });
     if (!emp) return res.status(404).json({ error: "Not found" });
     res.json(publicEmployee(emp));
+  }),
+);
+
+/**
+ * Permanently removes the employee's account, login, session, and check-in
+ * photo. Unlike /reset, this is not recoverable and the record does not come
+ * back on a future cold start — seeding only ever runs once per project.
+ */
+app.delete(
+  "/api/admin/employees/:id",
+  auth,
+  requireAdmin,
+  wrap(async (req, res) => {
+    const removed = await deleteEmployee(req.params.id);
+    if (!removed) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
   }),
 );
 

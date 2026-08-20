@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { ArrowLeft, MapPin, Power, Radio, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, MapPin, Power, Radio, Trash2 } from "lucide-react";
 import { apiFetch } from "../auth/AuthContext";
 import type { EmployeeUser } from "../auth/AuthContext";
 
@@ -18,10 +18,13 @@ const POLL_MS = 5000;
 
 export default function AdminEmployeeDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [emp, setEmp] = useState<EmployeeUser | null>(null);
   const [place, setPlace] = useState("");
   const [savingPlace, setSavingPlace] = useState(false);
   const [savingShift, setSavingShift] = useState(false);
+  const [confirmName, setConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +99,19 @@ export default function AdminEmployeeDetail() {
       toast.success("Check-in and location history cleared");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to clear history");
+    }
+  }
+
+  async function deleteEmployee() {
+    if (!emp || confirmName.trim() !== emp.name) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/admin/employees/${id}`, { method: "DELETE" });
+      toast.success(`${emp.name} deleted permanently`);
+      navigate("/admin", { replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete employee");
+      setDeleting(false);
     }
   }
 
@@ -261,6 +277,34 @@ export default function AdminEmployeeDetail() {
         ) : (
           <p className="text-sm text-muted-foreground">No check-in submitted yet.</p>
         )}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
+        <h2 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-destructive">
+          <AlertTriangle className="h-4 w-4" />
+          Danger zone
+        </h2>
+        <p className="mb-4 text-xs text-muted-foreground">
+          Permanently deletes {emp.name}'s account, login, and check-in photo. Unlike "Clear
+          history" above, this can't be undone and the record will not come back on its own —
+          type their name to confirm.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            placeholder={`Type "${emp.name}" to confirm`}
+            className="min-w-64 flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+          />
+          <button
+            onClick={deleteEmployee}
+            disabled={confirmName.trim() !== emp.name || deleting}
+            className="flex items-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          >
+            <Trash2 className="h-4 w-4" />
+            {deleting ? "Deleting…" : "Delete employee permanently"}
+          </button>
+        </div>
       </section>
     </div>
   );
