@@ -62,9 +62,16 @@ const COLUMN_MAP = {
   lastCheckIn: "last_check_in",
 };
 
+// `role` is implied by which table a row lives in (admins vs employees), so
+// there is no such column — the in-memory objects carry it, the rows don't.
+const NON_COLUMN_FIELDS = new Set(["role"]);
+
 function toRow(obj) {
   const row = {};
-  for (const [k, v] of Object.entries(obj)) row[COLUMN_MAP[k] || k] = v;
+  for (const [k, v] of Object.entries(obj)) {
+    if (NON_COLUMN_FIELDS.has(k)) continue;
+    row[COLUMN_MAP[k] || k] = v;
+  }
   return row;
 }
 
