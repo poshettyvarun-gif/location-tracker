@@ -1,13 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type PersonnelRank = "cp" | "dcp" | "acp" | "si" | "ci" | "inspector";
+export type PersonnelRank = "cp" | "dcp" | "acp" | "inspector";
 
 export const RANK_LABEL: Record<PersonnelRank, string> = {
   cp: "Commissioner of Police",
   dcp: "Deputy Commissioner of Police",
   acp: "Assistant Commissioner of Police",
-  si: "Sub-Inspector",
-  ci: "Circle Inspector",
   inspector: "Police Inspector",
 };
 
@@ -17,7 +15,7 @@ export function hasFullAccess(role: string): boolean {
 }
 
 export function isReadOnly(role: string): boolean {
-  return role === "acp" || role === "si" || role === "ci";
+  return role === "acp";
 }
 
 export interface EmployeeUser {
@@ -67,7 +65,6 @@ interface AuthState {
   token: string | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<CurrentUser>;
-  loginWithEmailLink: (accessToken: string) => Promise<CurrentUser>;
   logout: () => Promise<void>;
   returnToLogin: () => void;
   refresh: () => Promise<void>;
@@ -136,17 +133,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user as CurrentUser;
   }
 
-  async function loginWithEmailLink(accessToken: string) {
-    const data = await apiFetch("/api/auth/email/verify-link", {
-      method: "POST",
-      body: JSON.stringify({ accessToken }),
-    });
-    localStorage.setItem(TOKEN_KEY, data.token);
-    setToken(data.token);
-    setUser(data.user);
-    return data.user as CurrentUser;
-  }
-
   async function logout() {
     await apiFetch("/api/auth/logout", { method: "POST" });
     localStorage.removeItem(TOKEN_KEY);
@@ -168,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, loginWithEmailLink, logout, returnToLogin, refresh }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, returnToLogin, refresh }}>
       {children}
     </AuthContext.Provider>
   );

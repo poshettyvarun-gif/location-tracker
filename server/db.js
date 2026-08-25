@@ -62,9 +62,7 @@ export function nextSlot(slot) {
  * through the app). ACP and Inspector are created through the app by CP/DCP. */
 export const CREATABLE_RANKS = ["acp", "inspector"];
 export const FIXED_RANKS = ["cp", "dcp"];
-export const MONITORING_RANKS = ["si", "ci"];
-export const ALL_RANKS = [...FIXED_RANKS, "acp", ...MONITORING_RANKS, "inspector"];
-export const SELF_REGISTRATION_ROLES = ["constable", "si", "ci", "inspector"];
+export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
 
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
@@ -102,7 +100,6 @@ const COLUMN_MAP = {
   lastCheckIn: "last_check_in",
   profilePhotoId: "profile_photo_id",
   inspectorId: "inspector_id",
-  authUserId: "auth_user_id",
 };
 
 // `role` on a personnel row IS its rank column — kept as a separate in-memory
@@ -138,8 +135,6 @@ function fromEmployeeRow(row) {
     code: row.code,
     name: row.name,
     username: row.username,
-    email: row.email,
-    authUserId: row.auth_user_id,
     passwordHash: row.password_hash,
     role: "employee",
     designation: row.designation,
@@ -159,8 +154,6 @@ function fromPersonnelRow(row) {
     code: row.code,
     name: row.name,
     username: row.username,
-    email: row.email,
-    authUserId: row.auth_user_id,
     passwordHash: row.password_hash,
     role: row.rank,
   };
@@ -241,16 +234,6 @@ export async function findUserById(id) {
   if (person) return fromPersonnelRow(person);
   const { data: emp } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
   return emp ? fromEmployeeRow(emp) : null;
-}
-
-/** Lookup used after Supabase Auth has verified an email OTP. */
-export async function findUserByAuthUserId(authUserId) {
-  await ensureSeeded();
-  if (!isSupabaseConfigured) return null;
-  const { data: person } = await supabase.from("personnel").select("*").eq("auth_user_id", authUserId).maybeSingle();
-  if (person) return fromPersonnelRow(person);
-  const { data: employee } = await supabase.from("employees").select("*").eq("auth_user_id", authUserId).maybeSingle();
-  return employee ? fromEmployeeRow(employee) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -481,113 +464,6 @@ export async function updateEmployee(id, patch) {
   const { data, error } = await supabase.from("employees").update(toEmployeeRow(patch)).eq("id", id).select().maybeSingle();
   if (error) throw new Error(`Supabase: ${error.message}`);
   return data ? fromEmployeeRow(data) : null;
-}
-
-// ---------------------------------------------------------------------------
-// Email-verified self-registration (ACP review required before access)
-// ---------------------------------------------------------------------------
-
-export async function createRegistrationRequest({ authUserId, email, name, code, requestedRole }) {
-  if (!isSupabaseConfigured) throw new Error("Email registration requires Supabase configuration");
-  const { data: existing } = await supabase
-    .from("registration_requests")
-    .select("*")
-    .or(`auth_user_id.eq.${authUserId},email.eq.${email}`)
-    .maybeSingle();
-  if (existing?.status === "approved") throw new Error("This email already has an approved account");
-
-  const row = {
-    auth_user_id: authUserId,
-    email,
-    name: name.trim(),
-    code: code?.trim() || null,
-    requested_role: requestedRole,
-    status: "pending",
-    reviewed_at: null,
-    reviewed_by: null,
-  };
-  const { data, error } = await supabase
-    .from("registration_requests")
-    .upsert(row, { onConflict: "auth_user_id" })
-    .select()
-    .maybeSingle();
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return data;
-}
-
-export async function listRegistrationRequests() {
-  if (!isSupabaseConfigured) return [];
-  const { data, error } = await supabase.from("registration_requests").select("*").order("created_at", { ascending: false });
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return data || [];
-}
-
-export async function reviewRegistrationRequest(id, decision, reviewerId) {
-  if (!isSupabaseConfigured) throw new Error("Email registration requires Supabase configuration");
-  const { data: request } = await supabase.from("registration_requests").select("*").eq("id", id).maybeSingle();
-  if (!request) return null;
-  if (request.status !== "pending") throw new Error("This registration has already been reviewed");
-
-  if (decision === "rejected") {
-    const { data, error } = await supabase
-      .from("registration_requests")
-      .update({ status: "rejected", reviewed_at: new Date().toISOString(), reviewed_by: reviewerId })
-      .eq("id", id)
-      .select()
-      .maybeSingle();
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    return { request: data, profile: null };
-  }
-
-  const passwordHash = bcrypt.hashSync(crypto.randomBytes(32).toString("hex"), 10);
-  let profile;
-  if (request.requested_role === "constable") {
-    const employee = {
-      id: `emp-${crypto.randomUUID()}`,
-      code: request.code || `PC-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-      name: request.name,
-      username: request.email,
-      email: request.email,
-      authUserId: request.auth_user_id,
-      passwordHash,
-      role: "employee",
-      designation: "Police Constable",
-      profilePhotoId: null,
-      inspectorId: null,
-      shiftSlot: null,
-      assignedPlace: null,
-      onDuty: false,
-      lastLocation: null,
-      lastCheckIn: null,
-    };
-    const { data, error } = await supabase.from("employees").insert(toEmployeeRow(employee)).select().maybeSingle();
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    profile = fromEmployeeRow(data);
-  } else {
-    const rank = request.requested_role;
-    const person = {
-      id: `${rank}-${crypto.randomUUID()}`,
-      code: request.code || rank.toUpperCase(),
-      name: request.name,
-      username: request.email,
-      email: request.email,
-      authUserId: request.auth_user_id,
-      passwordHash,
-      role: rank,
-    };
-    const { data, error } = await supabase.from("personnel").insert(toPersonnelRow(person)).select().maybeSingle();
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    profile = fromPersonnelRow(data);
-  }
-
-  const { data: reviewed, error: reviewError } = await supabase
-    .from("registration_requests")
-    .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: reviewerId })
-    .eq("id", id)
-    .select()
-    .maybeSingle();
-  if (reviewError) throw new Error(`Supabase: ${reviewError.message}`);
-  return { request: reviewed, profile };
 }
 
 /** Permanently removes the employee's account, session, check-in photo, and profile photo. Cannot be undone. */

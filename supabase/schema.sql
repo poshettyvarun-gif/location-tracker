@@ -19,9 +19,7 @@ create table if not exists public.personnel (
   name text not null,
   username text unique not null,
   password_hash text not null,
-  rank text not null check (rank in ('cp', 'dcp', 'acp', 'si', 'ci', 'inspector')),
-  email text unique,
-  auth_user_id uuid unique
+  rank text not null check (rank in ('cp', 'dcp', 'acp', 'inspector'))
 );
 
 create table if not exists public.employees (
@@ -32,8 +30,6 @@ create table if not exists public.employees (
   password_hash text not null,
   designation text,
   profile_photo_id text,
-  email text unique,
-  auth_user_id uuid unique,
   -- Which Inspector manages this constable. Null means unassigned — visible
   -- to CP/DCP/ACP but not editable by any Inspector until assigned.
   inspector_id text references public.personnel (id) on delete set null,
@@ -48,28 +44,13 @@ create table if not exists public.employees (
 create table if not exists public.sessions (
   token text primary key,
   user_id text not null,
-  role text not null check (role in ('cp', 'dcp', 'acp', 'si', 'ci', 'inspector', 'employee')),
+  role text not null check (role in ('cp', 'dcp', 'acp', 'inspector', 'employee')),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null
 );
 
 create index if not exists sessions_expires_at_idx on public.sessions (expires_at);
 create index if not exists employees_inspector_id_idx on public.employees (inspector_id);
-
--- Email-verified applicants remain here until ACP review. Their application
--- creates no employee/personnel account and therefore grants no dashboard access.
-create table if not exists public.registration_requests (
-  id uuid primary key default gen_random_uuid(),
-  auth_user_id uuid unique not null,
-  email text unique not null,
-  name text not null,
-  code text,
-  requested_role text not null check (requested_role in ('constable', 'si', 'ci', 'inspector')),
-  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
-  created_at timestamptz not null default now(),
-  reviewed_at timestamptz,
-  reviewed_by text references public.personnel (id) on delete set null
-);
 
 -- The server connects with the service_role key, which bypasses Row Level
 -- Security entirely — RLS is enabled anyway as defence in depth in case the
@@ -78,7 +59,6 @@ alter table public.meta enable row level security;
 alter table public.personnel enable row level security;
 alter table public.employees enable row level security;
 alter table public.sessions enable row level security;
-alter table public.registration_requests enable row level security;
 -- No policies are created, so the anon/authenticated roles get zero access
 -- (only service_role, which bypasses RLS, can read or write).
 

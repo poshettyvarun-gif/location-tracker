@@ -48,7 +48,7 @@ export default function AdminPersonnel() {
   }
 
   const ranked = [...people].sort((a, b) => {
-    const order: Record<PersonnelRank, number> = { cp: 0, dcp: 1, acp: 2, ci: 3, si: 4, inspector: 5 };
+    const order: Record<PersonnelRank, number> = { cp: 0, dcp: 1, acp: 2, inspector: 3 };
     return order[a.role] - order[b.role] || a.name.localeCompare(b.name);
   });
 
