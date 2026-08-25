@@ -4,8 +4,8 @@ import { toast } from "sonner";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { AlertTriangle, ArrowLeft, MapPin, Power, Radio, Trash2 } from "lucide-react";
-import { apiFetch, useAuth, isReadOnly } from "../auth/AuthContext";
-import type { EmployeeUser } from "../auth/AuthContext";
+import { apiFetch, useAuth, hasFullAccess, isReadOnly } from "../auth/AuthContext";
+import type { EmployeeUser, PersonnelUser } from "../auth/AuthContext";
 
 const SHIFT_OPTIONS = [
   { value: "", label: "Unassigned" },
@@ -21,11 +21,14 @@ export default function AdminEmployeeDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const readOnly = isReadOnly(user?.role ?? "");
+  const canAssignInspector = hasFullAccess(user?.role ?? "");
   const [emp, setEmp] = useState<EmployeeUser | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [place, setPlace] = useState("");
   const [savingPlace, setSavingPlace] = useState(false);
   const [savingShift, setSavingShift] = useState(false);
+  const [savingInspector, setSavingInspector] = useState(false);
+  const [inspectors, setInspectors] = useState<PersonnelUser[]>([]);
   const [confirmName, setConfirmName] = useState("");
   const [deleting, setDeleting] = useState(false);
 
@@ -54,6 +57,15 @@ export default function AdminEmployeeDetail() {
       clearInterval(timer);
     };
   }, [id]);
+
+  useEffect(() => {
+    if (!canAssignInspector) return;
+    apiFetch("/api/admin/personnel")
+      .then((people: PersonnelUser[]) => setInspectors(people.filter((person) => person.role === "inspector")))
+      .catch(() => {
+        /* The employee detail screen remains usable if the directory is temporarily unavailable. */
+      });
+  }, [canAssignInspector]);
 
   async function savePlace() {
     setSavingPlace(true);
@@ -84,6 +96,22 @@ export default function AdminEmployeeDetail() {
       toast.error(err instanceof Error ? err.message : "Failed to update shift");
     } finally {
       setSavingShift(false);
+    }
+  }
+
+  async function setInspector(inspectorId: string) {
+    setSavingInspector(true);
+    try {
+      const data = await apiFetch(`/api/admin/employees/${id}/assign-inspector`, {
+        method: "POST",
+        body: JSON.stringify({ inspectorId: inspectorId || null }),
+      });
+      setEmp(data);
+      toast.success("Inspector assignment updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update Inspector assignment");
+    } finally {
+      setSavingInspector(false);
     }
   }
 
@@ -188,6 +216,23 @@ export default function AdminEmployeeDetail() {
       </header>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {canAssignInspector && (
+          <section className="rounded-2xl border border-border bg-card p-5 shadow-soft lg:col-span-2">
+            <h2 className="mb-3 font-display text-sm font-semibold text-card-foreground">Inspector assignment</h2>
+            <select
+              value={emp.inspectorId ?? ""}
+              onChange={(e) => setInspector(e.target.value)}
+              disabled={savingInspector}
+              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
+            >
+              <option value="">Unassigned</option>
+              {inspectors.map((inspector) => (
+                <option key={inspector.id} value={inspector.id}>{inspector.name}</option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-muted-foreground">Each Inspector can manage up to 10 constables.</p>
+          </section>
+        )}
         <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
           <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-card-foreground">
             <Radio className={`h-4 w-4 ${isLive ? "text-[#3f8f5f]" : "text-muted-foreground"}`} />

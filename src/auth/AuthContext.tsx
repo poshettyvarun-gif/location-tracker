@@ -3,10 +3,10 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 export type PersonnelRank = "cp" | "dcp" | "acp" | "inspector";
 
 export const RANK_LABEL: Record<PersonnelRank, string> = {
-  cp: "CP",
-  dcp: "DCP",
-  acp: "ACP",
-  inspector: "Inspector",
+  cp: "Commissioner of Police",
+  dcp: "Deputy Commissioner of Police",
+  acp: "Assistant Commissioner of Police",
+  inspector: "Police Inspector",
 };
 
 /** CP/DCP: unrestricted read/write. ACP: read-only. Inspector: scoped to their own constables (checked server-side). */
@@ -115,6 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
+    // An employee session expires at the scheduled end of their shift. Polling
+    // keeps an already-open shared-device screen in sync without a reload.
+    const timer = window.setInterval(refresh, 60_000);
+    return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

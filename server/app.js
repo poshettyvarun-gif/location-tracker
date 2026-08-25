@@ -19,19 +19,21 @@ import {
   createEmployee,
   updateEmployee,
   deleteEmployee,
-  nextSlotOccupantOnDuty,
-  employeeForSlot,
   savePhoto,
   loadPhotoUrl,
   loadPhotoBuffer,
   deletePhoto,
   SHIFT_SLOTS,
+  isShiftActive,
+  currentShiftEndsAt,
   CREATABLE_RANKS,
 } from "./db.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "6mb" }));
+
+const MAX_CONSTABLES_PER_INSPECTOR = 10;
 
 // Serverless filesystems are read-only, so photos are held in memory and
 // persisted to the key/value store as data URLs rather than written to disk.
@@ -117,6 +119,12 @@ function inspectorOwns(user, employee) {
   return user.role !== "inspector" || employee.inspectorId === user.id;
 }
 
+async function inspectorHasCapacity(inspectorId, excludingEmployeeId = null) {
+  if (!inspectorId) return true;
+  const assigned = await listEmployeesByInspector(inspectorId);
+  return assigned.filter((employee) => employee.id !== excludingEmployeeId).length < MAX_CONSTABLES_PER_INSPECTOR;
+}
+
 // ---- Auth ----
 
 app.post(
@@ -127,11 +135,16 @@ app.post(
     if (!user || !bcrypt.compareSync(password || "", user.passwordHash)) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
-    const token = await createSession(user.id, user.role);
-    // Logging in starts the shift — this is the event that relieves the previous
-    // shift's officer to log out (see the handover check in /api/auth/logout).
-    const current =
-      user.role === "employee" && user.shiftSlot ? await updateEmployee(user.id, { onDuty: true }) : user;
+
+    if (user.role === "employee" && user.shiftSlot && !isShiftActive(user.shiftSlot)) {
+      return res.status(403).json({ error: "You can only sign in during your assigned shift." });
+    }
+
+    // Employee sessions end exactly when their active shift ends. Unassigned
+    // employees retain the standard short admin-style session for account setup.
+    const shiftExpiry = user.role === "employee" && user.shiftSlot ? currentShiftEndsAt() : undefined;
+    const token = await createSession(user.id, user.role, shiftExpiry);
+    const current = user.role === "employee" && user.shiftSlot ? await updateEmployee(user.id, { onDuty: true }) : user;
     res.json({
       token,
       user: current.role === "employee" ? publicEmployee(current) : publicPersonnel(current),
@@ -144,13 +157,7 @@ app.post(
   auth,
   wrap(async (req, res) => {
     if (req.user.role === "employee") {
-      const emp = req.user;
-      if (emp.onDuty && !(await nextSlotOccupantOnDuty(emp.shiftSlot))) {
-        return res.status(409).json({
-          error: "You can't log out until the next shift's officer has logged in.",
-        });
-      }
-      await updateEmployee(emp.id, { onDuty: false });
+      await updateEmployee(req.user.id, { onDuty: false });
     }
     await destroySession(req.token);
     res.json({ ok: true });
@@ -350,13 +357,16 @@ app.post(
   requireNotReadOnly,
   upload.single("photo"),
   wrap(async (req, res) => {
-    const { name, username, password, code, designation } = req.body || {};
+    const { name, username, password, code, designation, shiftSlot, assignedPlace } = req.body || {};
     let { inspectorId } = req.body || {};
     if (!name?.trim() || !username?.trim() || !password) {
       return res.status(400).json({ error: "Name, username, and password are required" });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    if (shiftSlot && !SHIFT_SLOTS.includes(shiftSlot)) {
+      return res.status(400).json({ error: "Invalid shift slot" });
     }
 
     if (req.user.role === "inspector") {
@@ -367,10 +377,13 @@ app.post(
         return res.status(400).json({ error: "inspectorId must refer to an Inspector" });
       }
     }
+    if (inspectorId && !(await inspectorHasCapacity(inspectorId))) {
+      return res.status(409).json({ error: `An Inspector can manage at most ${MAX_CONSTABLES_PER_INSPECTOR} constables` });
+    }
 
     let emp;
     try {
-      emp = await createEmployee({ name, username, password, code, designation, inspectorId });
+      emp = await createEmployee({ name, username, password, code, designation, inspectorId, shiftSlot, assignedPlace });
     } catch (err) {
       return res.status(409).json({ error: err.message });
     }
@@ -392,6 +405,28 @@ app.get(
   wrap(async (req, res) => {
     const emp = await getEmployee(req.params.id);
     if (!emp || !inspectorOwns(req.user, emp)) return res.status(404).json({ error: "Not found" });
+    res.json(await publicEmployeeWithInspector(emp));
+  }),
+);
+
+app.post(
+  "/api/admin/employees/:id/assign-inspector",
+  auth,
+  requireFullAccess,
+  wrap(async (req, res) => {
+    const existing = await getEmployee(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    const { inspectorId } = req.body || {};
+    if (inspectorId) {
+      const target = await getPersonnel(inspectorId);
+      if (!target || target.role !== "inspector") {
+        return res.status(400).json({ error: "inspectorId must refer to an Inspector" });
+      }
+      if (!(await inspectorHasCapacity(inspectorId, existing.id))) {
+        return res.status(409).json({ error: `An Inspector can manage at most ${MAX_CONSTABLES_PER_INSPECTOR} constables` });
+      }
+    }
+    const emp = await updateEmployee(req.params.id, { inspectorId: inspectorId || null });
     res.json(await publicEmployeeWithInspector(emp));
   }),
 );
@@ -422,13 +457,9 @@ app.post(
     if (shiftSlot !== null && shiftSlot !== undefined && shiftSlot !== "" && !SHIFT_SLOTS.includes(shiftSlot)) {
       return res.status(400).json({ error: "Invalid shift slot" });
     }
-    if (shiftSlot) {
-      const holder = await employeeForSlot(shiftSlot);
-      if (holder && holder.id !== req.params.id) {
-        return res.status(409).json({ error: `${holder.name} already holds the ${shiftSlot} shift` });
-      }
-    }
-    const emp = await updateEmployee(req.params.id, { shiftSlot: shiftSlot || null });
+    // A shift can have multiple constables. Changing an assignment ends any
+    // active duty so the constable must sign in again under the new schedule.
+    const emp = await updateEmployee(req.params.id, { shiftSlot: shiftSlot || null, onDuty: false });
     res.json(await publicEmployeeWithInspector(emp));
   }),
 );

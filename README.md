@@ -3,9 +3,9 @@
 An admin dashboard and a constable dashboard for tracking field officers: a
 command structure (CP → DCP → ACP → Inspector → Constable) assigns each
 constable a location, the constable checks in there with a photo (GPS captured
-automatically), and command can see each constable's live location. Shifts run
-in a strict relay — a constable can't log out until the next shift's constable
-has logged in — so a post is never left unmanned.
+automatically), and command can see each constable's live location. Shifts are
+time-bound: morning (06:00–14:00), afternoon (14:00–22:00), and night
+(22:00–06:00), in Asia/Kolkata time by default.
 
 **Ranks and access:**
 
@@ -14,7 +14,7 @@ has logged in — so a post is never left unmanned.
 | CP | 1 (fixed) | Full visibility and full create/edit/delete, everywhere. |
 | DCP | 1 (fixed) | Same as CP. |
 | ACP | as many as CP/DCP create | Sees everything CP/DCP sees — every constable, which Inspector runs them, headcounts per Inspector — but **read-only**: no create, edit, or delete. |
-| Inspector | as many as CP/DCP create | Manages only their **own** constables (create, edit, delete). Cannot see or touch another Inspector's constables — the API returns 404, not 403, so existence isn't leaked either. |
+| Inspector | as many as CP/DCP create | Manages only their **own** constables (create, edit, delete), up to **10** at a time. Cannot see or touch another Inspector's constables — the API returns 404, not 403, so existence isn't leaked either. |
 | Constable / Employee | created by their own Inspector | Self-service only: **Today's Employee Dashboard** — camera + GPS check-in. No admin access at all. |
 
 ## Stack
@@ -152,12 +152,12 @@ Everyone else is created from inside the dashboard, not env vars:
    characters) right there — that's the real login you hand them.
 2. **Constables** — sign in as CP, DCP, *or* an Inspector → **Employees** →
    **Add employee**. An Inspector's new constable is automatically assigned to
-   them; CP/DCP can pick which Inspector a constable reports to (or leave it
-   unassigned).
+   them; CP/DCP can pick or later reassign which Inspector a constable reports
+   to (or leave it unassigned). An Inspector may have at most 10 constables.
 3. Tell each person their credentials directly. There's no invite email and no
    self-signup.
-4. Assign a constable a shift (morning/afternoon/night) from their detail page
-   whenever you want them in the relay — new constables start unassigned.
+4. Assign a constable a shift (morning/afternoon/night) from their detail page.
+   New constables start unassigned.
 
 ## How it works
 
@@ -174,8 +174,8 @@ Everyone else is created from inside the dashboard, not env vars:
 - **Employee detail** (`/admin/employees/:id`) — live location on a map (polls
   every 5s), a text field to record the location you've assigned them (over
   radio/phone — this just logs it), shift assignment, their last check-in
-  photo + GPS, an emergency "force end shift" override that bypasses the
-  handover lock, and two distinct destructive actions:
+  photo + GPS, an emergency "force end shift" override, and two distinct
+  destructive actions:
   - **Clear history** — deletes their last check-in (photo included) and
     location, keeps their account and login working.
   - **Delete employee** (Danger zone, type their name to confirm) —
@@ -194,19 +194,20 @@ their own constables; the **Personnel** link is hidden entirely (Inspectors
 don't see the org chart, only their own slice of it). Opening another
 Inspector's constable by URL returns a 404, the same response as a
 nonexistent ID, so an Inspector can't tell whether a record exists elsewhere.
+An Inspector can manage up to 10 assigned constables.
 
 **Constable / Employee**
-- Signing in **starts the shift** — this is the "next person logged in" event
-  that relieves the previous shift's officer.
+- A constable can sign in only during their assigned shift. Signing in starts
+  a new daily attendance record, marks them on duty, and their session expires
+  automatically at the shift end. A previous day's login never counts as
+  today's attendance.
 - Sees their assigned location, then takes/uploads a photo to check in — GPS
   is captured automatically at submit time and sent with the photo.
 - While on duty, the browser sends a location ping every 15s so command's view
   stays live.
-- **Log out is disabled** until the next shift's constable has logged in. The
-  three shifts form a fixed cycle: morning → afternoon → night → morning
-  (next day), so the post is always covered. If someone genuinely can't reach
-  the next officer (lost phone, emergency), their Inspector (or CP/DCP) can
-  force-end their shift from the employee detail page.
+- At the shift end, duty is cleared automatically and the constable must sign
+  in again for their next scheduled shift. An Inspector or CP/DCP can also
+  force-end duty early in an emergency.
 
 ## Data & privacy notes (read before deploying for real)
 
@@ -237,7 +238,7 @@ api/
 server/
   app.js             Express routes (auth, admin, duty/check-in/location, photos)
   index.js           Local dev entrypoint — app.listen()
-  db.js              Records, sessions, seed-once logic, rank/scoping, shift-relay helpers
+  db.js              Records, sessions, seed-once logic, rank/scoping, shift-time helpers
   supabaseClient.js  Supabase client; isSupabaseConfigured gates the in-memory fallback
 supabase/
   schema.sql         Run once in the Supabase SQL Editor, on a project never seeded before

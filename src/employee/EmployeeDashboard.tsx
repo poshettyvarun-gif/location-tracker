@@ -68,6 +68,9 @@ export default function EmployeeDashboard() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Incrementing this invalidates any getUserMedia request that resolves after
+  // the dashboard has already unmounted or the camera has been stopped.
+  const cameraRequestRef = useRef(0);
 
   /** Probes GPS up front so a broken location setup is visible before submitting. */
   async function probeLocation() {
@@ -95,11 +98,19 @@ export default function EmployeeDashboard() {
 
   async function startCamera() {
     setCameraError(null);
+    stopCamera();
+    const requestId = ++cameraRequestRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
         audio: false,
       });
+      // A late permission response must not reactivate the camera after a
+      // successful submission, logout, or route change.
+      if (requestId !== cameraRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -111,8 +122,13 @@ export default function EmployeeDashboard() {
   }
 
   function stopCamera() {
+    cameraRequestRef.current += 1;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
   }
 
   // The camera opens as soon as this screen loads — no upload option.
@@ -238,9 +254,12 @@ export default function EmployeeDashboard() {
         form.append("locationError", locationError);
       }
       await apiFetch("/api/duty/checkin", { method: "POST", body: form });
-      await refresh();
+      // Release hardware before any follow-up rendering or navigation. This
+      // guarantees the browser camera indicator turns off once submission is
+      // accepted, even if a refresh later fails.
+      stopCamera();
       retake();
-      stopCamera(); // release the camera the instant the check-in lands, not at eventual unmount
+      await refresh();
       if (fix) {
         setLocation({ status: "ready", ...fix });
       }
@@ -263,6 +282,7 @@ export default function EmployeeDashboard() {
     setLoggingOut(true);
     setLogoutBlocked(null);
     try {
+      stopCamera();
       await logout();
     } catch (err) {
       setLogoutBlocked(err instanceof Error ? err.message : "Could not log out");
@@ -311,6 +331,11 @@ export default function EmployeeDashboard() {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-8">
+        <section className="mb-6 rounded-2xl border border-border bg-card px-5 py-4 shadow-soft">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-azure">Signed in as</p>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-foreground">Constable / Employee</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{emp.name} · Today’s Employee Dashboard</p>
+        </section>
         {logoutBlocked && (
           <div className="mb-6 flex items-start gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm text-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gold" />

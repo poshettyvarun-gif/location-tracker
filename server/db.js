@@ -5,6 +5,54 @@ import { supabase, isSupabaseConfigured, PHOTO_BUCKET } from "./supabaseClient.j
 /** Shift slots form a fixed relief cycle: morning -> afternoon -> night -> morning (next day). */
 export const SHIFT_SLOTS = ["morning", "afternoon", "night"];
 
+// Duty windows are evaluated in the command area's local time, rather than
+// the server's time zone (which is usually UTC in production).
+const SHIFT_TIME_ZONE = process.env.SHIFT_TIME_ZONE || "Asia/Kolkata";
+const SHIFT_END_MINUTE = { morning: 14 * 60, afternoon: 22 * 60, night: 6 * 60 };
+
+function localMinutesSinceMidnight(at = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: SHIFT_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const value = (type) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return value("hour") * 60 + value("minute");
+}
+
+/** Whether `slot` is currently within its scheduled local-time duty window. */
+export function isShiftActive(slot, at = new Date()) {
+  const minutes = localMinutesSinceMidnight(at);
+  if (slot === "morning") return minutes >= 6 * 60 && minutes < 14 * 60;
+  if (slot === "afternoon") return minutes >= 14 * 60 && minutes < 22 * 60;
+  if (slot === "night") return minutes >= 22 * 60 || minutes < 6 * 60;
+  return false;
+}
+
+/** Absolute expiry for a session created during the currently active shift. */
+export function currentShiftEndsAt(at = new Date()) {
+  const minutes = localMinutesSinceMidnight(at);
+  const endMinute = minutes >= 22 * 60 || minutes < 6 * 60 ? SHIFT_END_MINUTE.night
+    : minutes < 14 * 60 ? SHIFT_END_MINUTE.morning
+      : SHIFT_END_MINUTE.afternoon;
+  const remainingMinutes = endMinute > minutes ? endMinute - minutes : 24 * 60 - minutes + endMinute;
+  return at.getTime() + remainingMinutes * 60 * 1000;
+}
+
+/** Start of the currently active local shift, used as the daily attendance boundary. */
+export function currentShiftStartedAt(at = new Date()) {
+  const minutes = localMinutesSinceMidnight(at);
+  const elapsedMinutes = minutes >= 22 * 60
+    ? minutes - 22 * 60
+    : minutes < 6 * 60
+      ? minutes + 2 * 60
+      : minutes < 14 * 60
+        ? minutes - 6 * 60
+        : minutes - 14 * 60;
+  return at.getTime() - elapsedMinutes * 60 * 1000;
+}
+
 export function nextSlot(slot) {
   const i = SHIFT_SLOTS.indexOf(slot);
   return i === -1 ? null : SHIFT_SLOTS[(i + 1) % SHIFT_SLOTS.length];
@@ -39,7 +87,6 @@ function freshPersonnel() {
     username: process.env[p.usernameEnv] || p.usernameFallback,
     passwordHash: bcrypt.hashSync(process.env[p.passwordEnv] || p.passwordFallback, 10),
     role: p.rank,
-    inspectorId: null,
   }));
 }
 
@@ -136,10 +183,9 @@ function memSeed() {
 }
 
 // ---------------------------------------------------------------------------
-// Seeding — runs at most once per project, ever. Whether an account exists
-// right now is irrelevant to this check: it's gated on a single "has this
-// project ever been seeded" flag, not "is the table empty" — so a later cold
-// start never resurrects an account someone deleted on purpose.
+// Seeding — runs once per project. The rank migration preserves the legacy
+// fixed accounts, so an existing `seeded` marker means initialization is
+// already complete and those credentials must remain untouched.
 // ---------------------------------------------------------------------------
 let seeding = null;
 
@@ -194,12 +240,11 @@ export async function findUserById(id) {
 // Sessions
 // ---------------------------------------------------------------------------
 
-export async function createSession(userId, role) {
+export async function createSession(userId, role, expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000) {
   const token = crypto.randomBytes(24).toString("hex");
-  const expiresAt = Date.now() + SESSION_TTL_SECONDS * 1000;
 
   if (!isSupabaseConfigured) {
-    mem.sessions.set(token, { userId, role, expiresAt });
+    mem.sessions.set(token, { userId, role, expiresAt, createdAt: Date.now() });
     return token;
   }
   const { error } = await supabase
@@ -213,12 +258,24 @@ export async function getSessionUser(token) {
   if (!isSupabaseConfigured) {
     const session = mem.sessions.get(token);
     if (!session || session.expiresAt < Date.now()) return null;
-    return await findUserById(session.userId);
+    const user = await findUserById(session.userId);
+    if (user?.role === "employee" && user.shiftSlot && !isShiftActive(user.shiftSlot)) {
+      await updateEmployee(user.id, { onDuty: false });
+      mem.sessions.delete(token);
+      return null;
+    }
+    return user;
   }
 
   const { data } = await supabase.from("sessions").select("*").eq("token", token).maybeSingle();
   if (!data || new Date(data.expires_at).getTime() < Date.now()) return null;
-  return await findUserById(data.user_id);
+  const user = await findUserById(data.user_id);
+  if (user?.role === "employee" && user.shiftSlot && !isShiftActive(user.shiftSlot)) {
+    await updateEmployee(user.id, { onDuty: false });
+    await destroySession(token);
+    return null;
+  }
+  return user;
 }
 
 export async function destroySession(token) {
@@ -294,28 +351,65 @@ export async function deletePersonnel(id) {
 
 export async function listEmployees() {
   await ensureSeeded();
-  if (!isSupabaseConfigured) return [...mem.employees.values()];
+  if (!isSupabaseConfigured) return await clearExpiredDutyStatuses([...mem.employees.values()]);
   const { data, error } = await supabase.from("employees").select("*").order("code");
   if (error) throw new Error(`Supabase: ${error.message}`);
-  return (data || []).map(fromEmployeeRow);
+  return await clearExpiredDutyStatuses((data || []).map(fromEmployeeRow));
 }
 
 /** Employees managed by one specific Inspector — this is the whole of an Inspector's world. */
 export async function listEmployeesByInspector(inspectorId) {
   await ensureSeeded();
   if (!isSupabaseConfigured) {
-    return [...mem.employees.values()].filter((e) => e.inspectorId === inspectorId);
+    return await clearExpiredDutyStatuses([...mem.employees.values()].filter((e) => e.inspectorId === inspectorId));
   }
   const { data, error } = await supabase.from("employees").select("*").eq("inspector_id", inspectorId).order("code");
   if (error) throw new Error(`Supabase: ${error.message}`);
-  return (data || []).map(fromEmployeeRow);
+  return await clearExpiredDutyStatuses((data || []).map(fromEmployeeRow));
 }
 
 export async function getEmployee(id) {
   await ensureSeeded();
-  if (!isSupabaseConfigured) return mem.employees.get(id) || null;
+  if (!isSupabaseConfigured) return await clearExpiredDutyStatus(mem.employees.get(id) || null);
   const { data } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
-  return data ? fromEmployeeRow(data) : null;
+  return await clearExpiredDutyStatus(data ? fromEmployeeRow(data) : null);
+}
+
+async function clearExpiredDutyStatus(employee) {
+  if (!employee?.onDuty) return employee;
+  const hasCurrentAttendance = employee.shiftSlot
+    && isShiftActive(employee.shiftSlot)
+    && await hasCurrentDutySession(employee);
+  if (hasCurrentAttendance) return employee;
+  return await updateEmployee(employee.id, { onDuty: false });
+}
+
+async function clearExpiredDutyStatuses(employees) {
+  return await Promise.all(employees.map(clearExpiredDutyStatus));
+}
+
+/**
+ * `on_duty` is derived from a live session started in this specific shift,
+ * not retained indefinitely from a past login. This makes every shift a new
+ * daily attendance event, including after a server restart.
+ */
+async function hasCurrentDutySession(employee, now = Date.now()) {
+  const startedAt = currentShiftStartedAt(new Date(now));
+  if (!isSupabaseConfigured) {
+    return [...mem.sessions.values()].some(
+      (session) => session.userId === employee.id && session.expiresAt >= now && session.createdAt >= startedAt,
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("created_at, expires_at")
+    .eq("user_id", employee.id)
+    .eq("role", "employee")
+    .gt("expires_at", new Date(now).toISOString())
+    .gte("created_at", new Date(startedAt).toISOString());
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (data || []).length > 0;
 }
 
 /**
@@ -323,7 +417,7 @@ export async function getEmployee(id) {
  * this to any Inspector (or leave unassigned); an Inspector creating their
  * own constable always has it forced to themselves at the route layer.
  */
-export async function createEmployee({ name, username, password, code, designation, inspectorId }) {
+export async function createEmployee({ name, username, password, code, designation, inspectorId, shiftSlot, assignedPlace }) {
   await ensureSeeded();
   const employee = {
     id: `emp-${crypto.randomUUID()}`,
@@ -335,8 +429,8 @@ export async function createEmployee({ name, username, password, code, designati
     designation: designation?.trim() || null,
     profilePhotoId: null,
     inspectorId: inspectorId || null,
-    shiftSlot: null,
-    assignedPlace: null,
+    shiftSlot: shiftSlot || null,
+    assignedPlace: assignedPlace?.trim() || null,
     onDuty: false,
     lastLocation: null,
     lastCheckIn: null,

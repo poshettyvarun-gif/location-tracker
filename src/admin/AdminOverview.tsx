@@ -13,9 +13,18 @@ const SHIFT_LABEL: Record<string, string> = {
 
 const POLL_MS = 8000;
 
+const OVERVIEW_COPY = {
+  cp: { title: "Command overview", description: "Force-wide employee readiness and field assignments.", add: "Register constable" },
+  dcp: { title: "Deployment overview", description: "Workforce deployment, attendance, and assigned posts.", add: "Add deployment officer" },
+  acp: { title: "Operational briefing", description: "Read-only view of constable assignments and duty status.", add: "" },
+  inspector: { title: "My constables", description: "Manage your registered field constables and their assigned posts.", add: "Register constable" },
+} as const;
+
 export default function AdminOverview() {
   const { user } = useAuth();
   const readOnly = isReadOnly(user?.role ?? "");
+  const role = user?.role === "employee" ? "inspector" : user?.role ?? "inspector";
+  const copy = OVERVIEW_COPY[role as keyof typeof OVERVIEW_COPY] ?? OVERVIEW_COPY.inspector;
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -39,6 +48,7 @@ export default function AdminOverview() {
   }, []);
 
   const onDutyCount = employees.filter((e) => e.onDuty).length;
+  const atInspectorCapacity = user?.role === "inspector" && employees.length >= 10;
 
   /** Clears the employee's check-in/location history and ends their shift. */
   async function resetEmployee(emp: EmployeeUser) {
@@ -65,18 +75,20 @@ export default function AdminOverview() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">
       <header className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
-          <h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">Employees</h1>
+          <h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">{copy.title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {onDutyCount} of {employees.length} on duty right now.
+            {copy.description} {onDutyCount} of {employees.length} on duty right now.
           </p>
         </div>
         {!readOnly && (
           <button
             onClick={() => setShowAddForm(true)}
+            disabled={atInspectorCapacity}
+            title={atInspectorCapacity ? "An Inspector can manage up to 10 constables" : undefined}
             className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:shrink-0"
           >
             <UserPlus className="h-4 w-4" />
-            Add employee
+            {copy.add}
           </button>
         )}
       </header>
@@ -85,6 +97,11 @@ export default function AdminOverview() {
         <p className="mb-6 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-xs text-foreground">
           Read-only access — you can view every employee and who manages them, but can't add, edit, or
           remove anyone.
+        </p>
+      )}
+      {atInspectorCapacity && (
+        <p className="mb-6 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-xs text-foreground">
+          Your Inspector allocation is full: 10 of 10 registered constables.
         </p>
       )}
 
@@ -220,6 +237,8 @@ function AddEmployeeForm({
   const [name, setName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [designation, setDesignation] = useState("");
+  const [shiftSlot, setShiftSlot] = useState("");
+  const [assignedPlace, setAssignedPlace] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [photo, setPhoto] = useState<{ file: File; previewUrl: string } | null>(null);
@@ -254,6 +273,8 @@ function AddEmployeeForm({
       form.append("password", password);
       if (employeeId.trim()) form.append("code", employeeId.trim());
       if (designation.trim()) form.append("designation", designation.trim());
+      if (shiftSlot) form.append("shiftSlot", shiftSlot);
+      if (assignedPlace.trim()) form.append("assignedPlace", assignedPlace.trim());
       if (canPickInspector && inspectorId) form.append("inspectorId", inspectorId);
       if (photo) form.append("photo", photo.file);
 
@@ -280,7 +301,8 @@ function AddEmployeeForm({
       </div>
       <p className="mb-4 text-xs text-muted-foreground">
         Choose their username and password now — this is exactly what they'll use to sign in. Tell
-        it to them directly; there's no separate invite step.
+        it to them directly; there's no separate invite step. You can also set their shift and assigned
+        location now; several constables may share the same shift.
       </p>
 
       <div className="mb-3 flex items-center gap-3">
@@ -326,6 +348,16 @@ function AddEmployeeForm({
           placeholder="Employee ID (leave blank to auto-generate)"
           className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
         />
+        <select
+          value={shiftSlot}
+          onChange={(e) => setShiftSlot(e.target.value)}
+          className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+        >
+          <option value="">Shift: Unassigned</option>
+          <option value="morning">Morning (06:00–14:00)</option>
+          <option value="afternoon">Afternoon (14:00–22:00)</option>
+          <option value="night">Night (22:00–06:00)</option>
+        </select>
         <input
           required
           value={username}
@@ -358,6 +390,13 @@ function AddEmployeeForm({
           className={`rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground ${canPickInspector ? "" : "sm:col-span-2"}`}
         />
       </div>
+      <textarea
+        value={assignedPlace}
+        onChange={(e) => setAssignedPlace(e.target.value)}
+        placeholder="Assigned location (e.g. Kompally Gate 2)"
+        rows={2}
+        className="mt-3 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+      />
       <button
         type="submit"
         disabled={submitting}
