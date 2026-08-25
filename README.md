@@ -62,13 +62,13 @@ This creates the `personnel`, `employees`, `sessions`, and `meta` tables, plus
 a private `checkin-photos` storage bucket. It's safe to re-run.
 
 > **Already have data from before the rank system?** Don't run `schema.sql`
-> against it — that's for a project that's never been seeded. Instead run
-> [`supabase/migrate_ranks.sql`](supabase/migrate_ranks.sql) once: it renames
-> `admins` → `personnel`, adds the `rank` column (mapping your existing 2
-> admin accounts to CP and DCP), and adds `inspector_id` to `employees`. In
-> both the SQL Editor, double-check the dropdown next to **Run** says
-> **Database**, not **Logs** — picking the wrong one gives a misleading
-> generic error instead of running the SQL.
+> against it — that's for a project that's never been seeded. Run
+> [`supabase/migrate_ranks.sql`](supabase/migrate_ranks.sql) first if your
+> project still uses `admins`, then run
+> [`supabase/migrate_self_registration.sql`](supabase/migrate_self_registration.sql).
+> The latter adds SI/CI ranks, Supabase Auth links, and ACP registration
+> approvals. In the SQL Editor, double-check the dropdown next to **Run** says
+> **Database**, not **Logs**.
 
 ### 3. Get your API keys
 
@@ -81,6 +81,13 @@ The service_role key bypasses Row Level Security, which is why the schema
 enables RLS with no policies — only your server (holding this key) can read
 or write these tables. **Never** put this key in frontend code or a `VITE_`
 env var; it only belongs in the backend's environment.
+
+### 3a. Enable free email-link verification in Supabase Auth
+
+In **Authentication → Providers → Email**, enable Email. The free plan uses
+Supabase's default **Sign in** email link—no custom SMTP or paid plan is
+required. Set the production URL in **Authentication → URL Configuration** and
+set the same value as `APP_URL` before deploying.
 
 ### 4. Push to GitHub and import to Vercel
 
@@ -102,8 +109,9 @@ the defaults.
 | `SUPABASE_SERVICE_ROLE_KEY` | from step 3 |
 | `ADMIN_PASSWORD`, `ADMIN2_PASSWORD` | real passwords, not the defaults — these are the CP and DCP logins |
 
-That's it — 4 variables total. ACP, Inspector, and Constable accounts are
-**not** configured here; see "Login details" below for how those get created.
+ACP, Inspector, CI, SI, and Constable accounts are not configured as env
+variables. Constables, SI, CI, and Inspectors register with email OTP and ACP
+approves or rejects them in **Registration approvals**.
 
 See `.env.example` for the full list. Skipping the password vars leaves the
 app on the values published in this README — anyone who reads this file can
@@ -243,6 +251,7 @@ server/
 supabase/
   schema.sql         Run once in the Supabase SQL Editor, on a project never seeded before
   migrate_ranks.sql  Run once instead, against a database with existing pre-rank-system data
+  migrate_self_registration.sql  Upgrade an existing rank-enabled project for email OTP registration
 src/
   App.tsx            Routes: /login, /admin/*, /employee
   auth/              AuthContext (ranks, permission helpers), LoginPage, RequireRole route guard

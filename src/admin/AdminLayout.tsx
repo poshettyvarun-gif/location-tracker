@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, LogOut, MapPinned, Menu, Shield, Users, X } from "lucide-react";
+import { ClipboardCheck, LayoutDashboard, LogOut, MapPinned, Menu, Shield, Users, X } from "lucide-react";
 import { useAuth, RANK_LABEL, type PersonnelRank } from "../auth/AuthContext";
 
 const NAV_LINK_CLASS = ({ isActive }: { isActive: boolean }) =>
@@ -33,6 +33,22 @@ const DASHBOARD_SHELL: Record<PersonnelRank, { title: string; subtitle: string; 
     map: "Live Operations Map",
     brand: "bg-[#27364a]",
   },
+  si: {
+    title: "Sub-Inspector Monitoring Desk",
+    subtitle: "Read-only constable monitoring",
+    employees: "Constable Updates",
+    personnel: "",
+    map: "Live Updates Map",
+    brand: "bg-[#304050]",
+  },
+  ci: {
+    title: "Circle Inspector Monitoring Desk",
+    subtitle: "Read-only constable monitoring",
+    employees: "Constable Updates",
+    personnel: "",
+    map: "Live Updates Map",
+    brand: "bg-[#3a344f]",
+  },
   inspector: {
     title: "Inspector Field Desk",
     subtitle: "Your assigned constables",
@@ -60,7 +76,8 @@ export default function AdminLayout() {
   const shell = rank ? DASHBOARD_SHELL[rank] : DASHBOARD_SHELL.cp;
   // Inspectors only ever see their own constables — the personnel directory
   // (the org chart itself) is invisible to them, same as the API enforces.
-  const showPersonnelLink = rank !== "inspector";
+  const showPersonnelLink = !["inspector", "si", "ci"].includes(rank ?? "");
+  const showRegistrationsLink = rank === "acp";
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -117,6 +134,12 @@ export default function AdminLayout() {
             <NavLink to="/admin/personnel" className={NAV_LINK_CLASS}>
               <Users className="h-4 w-4 shrink-0" />
               {shell.personnel}
+            </NavLink>
+          )}
+          {showRegistrationsLink && (
+            <NavLink to="/admin/registrations" className={NAV_LINK_CLASS}>
+              <ClipboardCheck className="h-4 w-4 shrink-0" />
+              Registration approvals
             </NavLink>
           )}
           <NavLink to="/admin/map" className={NAV_LINK_CLASS}>

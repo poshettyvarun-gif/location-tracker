@@ -3,9 +3,11 @@ import cors from "cors";
 import multer from "multer";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
+import { supabase, isSupabaseConfigured } from "./supabaseClient.js";
 import {
   findUserByUsername,
   findUserById,
+  findUserByAuthUserId,
   createSession,
   getSessionUser,
   destroySession,
@@ -16,7 +18,6 @@ import {
   listEmployees,
   listEmployeesByInspector,
   getEmployee,
-  createEmployee,
   updateEmployee,
   deleteEmployee,
   savePhoto,
@@ -27,6 +28,10 @@ import {
   isShiftActive,
   currentShiftEndsAt,
   CREATABLE_RANKS,
+  SELF_REGISTRATION_ROLES,
+  createRegistrationRequest,
+  listRegistrationRequests,
+  reviewRegistrationRequest,
 } from "./db.js";
 
 const app = express();
@@ -104,13 +109,18 @@ function requireFullAccess(req, res, next) {
 
 /** Blocks ACP from any route that changes data. ACP sees everything, changes nothing. */
 function requireNotReadOnly(req, res, next) {
-  if (req.user.role === "acp") return res.status(403).json({ error: "ACP has read-only access" });
+  if (["acp", "si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "This role has read-only access" });
   next();
 }
 
 /** The personnel directory itself is invisible to Inspectors — they only ever see their own constables. */
 function requireOrgVisibility(req, res, next) {
-  if (req.user.role === "inspector") return res.status(403).json({ error: "Not authorized" });
+  if (["inspector", "si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "Not authorized" });
+  next();
+}
+
+function requireRegistrationApprover(req, res, next) {
+  if (req.user.role !== "acp") return res.status(403).json({ error: "ACP approval required" });
   next();
 }
 
@@ -126,6 +136,93 @@ async function inspectorHasCapacity(inspectorId, excludingEmployeeId = null) {
 }
 
 // ---- Auth ----
+
+function dashboardOrigin(req) {
+  const configured = process.env.APP_URL || process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`;
+  return (configured || req.get("origin") || "http://127.0.0.1:5174").replace(/\/$/, "");
+}
+
+async function sendEmailLink(email, shouldCreateUser, redirectTo) {
+  if (!isSupabaseConfigured) throw new Error("Email sign-in links require Supabase configuration");
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser, emailRedirectTo: redirectTo },
+  });
+  if (error) throw new Error(error.message);
+}
+
+app.post(
+  "/api/auth/registration/send-link",
+  wrap(async (req, res) => {
+    const { email, name, code, requestedRole } = req.body || {};
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!normalizedEmail || !name?.trim() || !SELF_REGISTRATION_ROLES.includes(requestedRole)) {
+      return res.status(400).json({ error: "Name, email, and registration role are required" });
+    }
+    const callback = new URL(`${dashboardOrigin(req)}/login`);
+    callback.search = new URLSearchParams({
+      email_link: "registration",
+      registration_name: name.trim(),
+      registration_code: code?.trim() || "",
+      registration_role: requestedRole,
+    }).toString();
+    await sendEmailLink(normalizedEmail, true, callback.toString());
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  "/api/auth/registration/verify-link",
+  wrap(async (req, res) => {
+    const { accessToken, name, code, requestedRole } = req.body || {};
+    if (!accessToken || !name?.trim() || !SELF_REGISTRATION_ROLES.includes(requestedRole)) {
+      return res.status(400).json({ error: "Name, role, and verification link are required" });
+    }
+    if (!isSupabaseConfigured) return res.status(503).json({ error: "Email registration is not configured" });
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    const normalizedEmail = data?.user?.email?.toLowerCase();
+    if (error || !data?.user || !normalizedEmail) {
+      return res.status(401).json({ error: "Invalid or expired email link" });
+    }
+    const request = await createRegistrationRequest({
+      authUserId: data.user.id,
+      email: normalizedEmail,
+      name,
+      code,
+      requestedRole,
+    });
+    res.status(201).json({ id: request.id, status: request.status });
+  }),
+);
+
+app.post(
+  "/api/auth/email/send-link",
+  wrap(async (req, res) => {
+    const normalizedEmail = String(req.body?.email || "").trim().toLowerCase();
+    if (!normalizedEmail) return res.status(400).json({ error: "Email is required" });
+    await sendEmailLink(normalizedEmail, false, `${dashboardOrigin(req)}/login?email_link=login`);
+    res.json({ ok: true });
+  }),
+);
+
+app.post(
+  "/api/auth/email/verify-link",
+  wrap(async (req, res) => {
+    const accessToken = String(req.body?.accessToken || "").trim();
+    if (!accessToken) return res.status(400).json({ error: "Email verification link is required" });
+    if (!isSupabaseConfigured) return res.status(503).json({ error: "Email login is not configured" });
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (error || !data.user) {
+      return res.status(401).json({ error: "Invalid or expired email link" });
+    }
+    const user = await findUserByAuthUserId(data.user.id);
+    if (!user) return res.status(403).json({ error: "Your verified registration is awaiting ACP approval" });
+    const shiftExpiry = user.role === "employee" && user.shiftSlot ? currentShiftEndsAt() : undefined;
+    const appToken = await createSession(user.id, user.role, shiftExpiry);
+    const current = user.role === "employee" && user.shiftSlot ? await updateEmployee(user.id, { onDuty: true }) : user;
+    res.json({ token: appToken, user: current.role === "employee" ? publicEmployee(current) : publicPersonnel(current) });
+  }),
+);
 
 app.post(
   "/api/auth/login",
@@ -260,6 +357,40 @@ app.post(
 // Invisible to Inspectors — they only ever see their own constables.
 
 app.get(
+  "/api/admin/registration-requests",
+  auth,
+  requireRegistrationApprover,
+  wrap(async (_req, res) => {
+    const requests = await listRegistrationRequests();
+    res.json(requests.map((request) => ({
+      id: request.id,
+      email: request.email,
+      name: request.name,
+      code: request.code,
+      requestedRole: request.requested_role,
+      status: request.status,
+      createdAt: request.created_at,
+      reviewedAt: request.reviewed_at,
+    })));
+  }),
+);
+
+app.post(
+  "/api/admin/registration-requests/:id/review",
+  auth,
+  requireRegistrationApprover,
+  wrap(async (req, res) => {
+    const { decision } = req.body || {};
+    if (decision !== "approved" && decision !== "rejected") {
+      return res.status(400).json({ error: "Decision must be approved or rejected" });
+    }
+    const result = await reviewRegistrationRequest(req.params.id, decision, req.user.id);
+    if (!result) return res.status(404).json({ error: "Registration not found" });
+    res.json({ id: result.request.id, status: result.request.status });
+  }),
+);
+
+app.get(
   "/api/admin/personnel",
   auth,
   requireAdminArea,
@@ -345,11 +476,7 @@ app.get(
   }),
 );
 
-/**
- * Creates a constable account. CP/DCP may assign any Inspector (or leave
- * unassigned); an Inspector creating one always has it forced to themselves.
- * ACP cannot create anything.
- */
+/** Constable accounts are created only after email-OTP registration and ACP approval. */
 app.post(
   "/api/admin/employees",
   auth,
@@ -357,44 +484,9 @@ app.post(
   requireNotReadOnly,
   upload.single("photo"),
   wrap(async (req, res) => {
-    const { name, username, password, code, designation, shiftSlot, assignedPlace } = req.body || {};
-    let { inspectorId } = req.body || {};
-    if (!name?.trim() || !username?.trim() || !password) {
-      return res.status(400).json({ error: "Name, username, and password are required" });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: "Password must be at least 6 characters" });
-    }
-    if (shiftSlot && !SHIFT_SLOTS.includes(shiftSlot)) {
-      return res.status(400).json({ error: "Invalid shift slot" });
-    }
-
-    if (req.user.role === "inspector") {
-      inspectorId = req.user.id;
-    } else if (inspectorId) {
-      const target = await getPersonnel(inspectorId);
-      if (!target || target.role !== "inspector") {
-        return res.status(400).json({ error: "inspectorId must refer to an Inspector" });
-      }
-    }
-    if (inspectorId && !(await inspectorHasCapacity(inspectorId))) {
-      return res.status(409).json({ error: `An Inspector can manage at most ${MAX_CONSTABLES_PER_INSPECTOR} constables` });
-    }
-
-    let emp;
-    try {
-      emp = await createEmployee({ name, username, password, code, designation, inspectorId, shiftSlot, assignedPlace });
-    } catch (err) {
-      return res.status(409).json({ error: err.message });
-    }
-
-    if (req.file) {
-      const photoId = `profile-${emp.id}-${Date.now()}`;
-      await savePhoto(photoId, req.file.buffer, req.file.mimetype || "image/jpeg");
-      emp = await updateEmployee(emp.id, { profilePhotoId: photoId });
-    }
-
-    res.status(201).json(await publicEmployeeWithInspector(emp));
+    return res.status(403).json({
+      error: "Constables must register with email OTP and receive ACP approval before accessing the dashboard.",
+    });
   }),
 );
 
