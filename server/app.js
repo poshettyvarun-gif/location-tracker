@@ -10,6 +10,7 @@ import {
   getSessionUser,
   destroySession,
   listPersonnel,
+  listPersonnelByInspector,
   getPersonnel,
   createPersonnel,
   deletePersonnel,
@@ -104,19 +105,26 @@ function requireFullAccess(req, res, next) {
 
 /** Blocks ACP from any route that changes data. ACP sees everything, changes nothing. */
 function requireNotReadOnly(req, res, next) {
-  if (req.user.role === "acp") return res.status(403).json({ error: "ACP has read-only access" });
+  if (["acp", "si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "This role has read-only access" });
   next();
 }
 
 /** The personnel directory itself is invisible to Inspectors — they only ever see their own constables. */
 function requireOrgVisibility(req, res, next) {
-  if (req.user.role === "inspector") return res.status(403).json({ error: "Not authorized" });
+  if (["si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "Not authorized" });
   next();
 }
 
 /** An Inspector may only see/act on constables where inspector_id is themselves. CP/DCP/ACP are unrestricted here. */
 function inspectorOwns(user, employee) {
   return user.role !== "inspector" || employee.inspectorId === user.id;
+}
+
+function allowedPersonnelRanks(user) {
+  if (["cp", "dcp"].includes(user.role)) return ["acp", "inspector", "si", "ci"];
+  if (user.role === "acp") return ["inspector"];
+  if (user.role === "inspector") return ["si", "ci"];
+  return [];
 }
 
 async function inspectorHasCapacity(inspectorId, excludingEmployeeId = null) {
@@ -265,6 +273,10 @@ app.get(
   requireAdminArea,
   requireOrgVisibility,
   wrap(async (req, res) => {
+    if (req.user.role === "inspector") {
+      const people = await listPersonnelByInspector(req.user.id);
+      return res.json(people.map((person) => publicPersonnel(person)));
+    }
     const [people, employees] = await Promise.all([listPersonnel(), listEmployees()]);
     const countByInspector = new Map();
     for (const e of employees) {
@@ -279,11 +291,11 @@ app.get(
   }),
 );
 
-/** CP/DCP create an ACP or Inspector account. CP/DCP themselves are fixed — never created here. */
+/** CP/DCP create senior ranks; ACP creates Inspectors; Inspectors create SI/CI. */
 app.post(
   "/api/admin/personnel",
   auth,
-  requireFullAccess,
+  requireAdminArea,
   wrap(async (req, res) => {
     const { name, username, password, rank } = req.body || {};
     if (!name?.trim() || !username?.trim() || !password) {
@@ -292,11 +304,11 @@ app.post(
     if (password.length < 6) {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
-    if (!CREATABLE_RANKS.includes(rank)) {
-      return res.status(400).json({ error: "Rank must be ACP or Inspector" });
+    if (!CREATABLE_RANKS.includes(rank) || !allowedPersonnelRanks(req.user).includes(rank)) {
+      return res.status(403).json({ error: "You are not allowed to create this rank" });
     }
     try {
-      const person = await createPersonnel({ name, username, password, rank });
+      const person = await createPersonnel({ name, username, password, rank, supervisorInspectorId: req.user.role === "inspector" ? req.user.id : null });
       res.status(201).json(publicPersonnel(person));
     } catch (err) {
       res.status(409).json({ error: err.message });
@@ -308,12 +320,18 @@ app.post(
 app.delete(
   "/api/admin/personnel/:id",
   auth,
-  requireFullAccess,
+  requireAdminArea,
   wrap(async (req, res) => {
     const person = await getPersonnel(req.params.id);
     if (!person) return res.status(404).json({ error: "Not found" });
     if (person.role === "cp" || person.role === "dcp") {
       return res.status(403).json({ error: "CP and DCP are fixed accounts and can't be deleted" });
+    }
+    if (req.user.role === "inspector" && (person.supervisorInspectorId !== req.user.id || !["si", "ci"].includes(person.role))) {
+      return res.status(403).json({ error: "You can only remove SI or CI accounts you created" });
+    }
+    if (!["cp", "dcp", "inspector"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Not authorized to remove this account" });
     }
     if (person.role === "inspector") {
       const owned = await listEmployeesByInspector(person.id);

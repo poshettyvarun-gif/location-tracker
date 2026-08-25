@@ -17,6 +17,8 @@ const OVERVIEW_COPY = {
   cp: { title: "Command overview", description: "Force-wide employee readiness and field assignments.", add: "Register constable" },
   dcp: { title: "Deployment overview", description: "Workforce deployment, attendance, and assigned posts.", add: "Add deployment officer" },
   acp: { title: "Operational briefing", description: "Read-only view of constable assignments and duty status.", add: "" },
+  si: { title: "Constable updates", description: "Read-only view of constable attendance, locations, and assignments.", add: "" },
+  ci: { title: "Constable updates", description: "Read-only view of constable attendance, locations, and assignments.", add: "" },
   inspector: { title: "My constables", description: "Manage your registered field constables and their assigned posts.", add: "Register constable" },
 } as const;
 

@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type PersonnelRank = "cp" | "dcp" | "acp" | "inspector";
+export type PersonnelRank = "cp" | "dcp" | "acp" | "si" | "ci" | "inspector";
 
 export const RANK_LABEL: Record<PersonnelRank, string> = {
   cp: "Commissioner of Police",
   dcp: "Deputy Commissioner of Police",
   acp: "Assistant Commissioner of Police",
+  si: "Sub-Inspector",
+  ci: "Circle Inspector",
   inspector: "Police Inspector",
 };
 
@@ -15,7 +17,7 @@ export function hasFullAccess(role: string): boolean {
 }
 
 export function isReadOnly(role: string): boolean {
-  return role === "acp";
+  return role === "acp" || role === "si" || role === "ci";
 }
 
 export interface EmployeeUser {

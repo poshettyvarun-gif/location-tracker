@@ -11,15 +11,15 @@ create table if not exists public.meta (
   value boolean not null
 );
 
--- CP, DCP, ACP, Inspector. CP/DCP are fixed (exactly one each, seeded from
--- env vars). ACP and Inspector accounts are created through the app by CP/DCP.
+-- CP, DCP, ACP, Inspector, SI, CI. CP/DCP are fixed (exactly one each).
 create table if not exists public.personnel (
   id text primary key,
   code text not null,
   name text not null,
   username text unique not null,
   password_hash text not null,
-  rank text not null check (rank in ('cp', 'dcp', 'acp', 'inspector'))
+  rank text not null check (rank in ('cp', 'dcp', 'acp', 'si', 'ci', 'inspector')),
+  supervisor_inspector_id text references public.personnel (id) on delete set null
 );
 
 create table if not exists public.employees (
@@ -44,13 +44,14 @@ create table if not exists public.employees (
 create table if not exists public.sessions (
   token text primary key,
   user_id text not null,
-  role text not null check (role in ('cp', 'dcp', 'acp', 'inspector', 'employee')),
+  role text not null check (role in ('cp', 'dcp', 'acp', 'si', 'ci', 'inspector', 'employee')),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null
 );
 
 create index if not exists sessions_expires_at_idx on public.sessions (expires_at);
 create index if not exists employees_inspector_id_idx on public.employees (inspector_id);
+create index if not exists personnel_supervisor_inspector_id_idx on public.personnel (supervisor_inspector_id);
 
 -- The server connects with the service_role key, which bypasses Row Level
 -- Security entirely — RLS is enabled anyway as defence in depth in case the

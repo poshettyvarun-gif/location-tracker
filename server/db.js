@@ -60,7 +60,7 @@ export function nextSlot(slot) {
 
 /** The rank hierarchy. CP/DCP are fixed (exactly one each, seeded, never created/deleted
  * through the app). ACP and Inspector are created through the app by CP/DCP. */
-export const CREATABLE_RANKS = ["acp", "inspector"];
+export const CREATABLE_RANKS = ["acp", "inspector", "si", "ci"];
 export const FIXED_RANKS = ["cp", "dcp"];
 export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
 
@@ -100,6 +100,7 @@ const COLUMN_MAP = {
   lastCheckIn: "last_check_in",
   profilePhotoId: "profile_photo_id",
   inspectorId: "inspector_id",
+  supervisorInspectorId: "supervisor_inspector_id",
 };
 
 // `role` on a personnel row IS its rank column — kept as a separate in-memory
@@ -156,6 +157,7 @@ function fromPersonnelRow(row) {
     username: row.username,
     passwordHash: row.password_hash,
     role: row.rank,
+    supervisorInspectorId: row.supervisor_inspector_id,
   };
 }
 
@@ -295,6 +297,14 @@ export async function listPersonnel() {
   return (data || []).map(fromPersonnelRow);
 }
 
+export async function listPersonnelByInspector(inspectorId) {
+  await ensureSeeded();
+  if (!isSupabaseConfigured) return [...mem.personnel.values()].filter((person) => person.supervisorInspectorId === inspectorId);
+  const { data, error } = await supabase.from("personnel").select("*").eq("supervisor_inspector_id", inspectorId).order("rank").order("name");
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (data || []).map(fromPersonnelRow);
+}
+
 export async function getPersonnel(id) {
   await ensureSeeded();
   if (!isSupabaseConfigured) return mem.personnel.get(id) || null;
@@ -303,7 +313,7 @@ export async function getPersonnel(id) {
 }
 
 /** CP/DCP-only: creates an ACP or Inspector account. CP/DCP themselves are fixed and never created here. */
-export async function createPersonnel({ name, username, password, rank }) {
+export async function createPersonnel({ name, username, password, rank, supervisorInspectorId = null }) {
   await ensureSeeded();
   const person = {
     id: `${rank}-${crypto.randomUUID()}`,
@@ -312,6 +322,7 @@ export async function createPersonnel({ name, username, password, rank }) {
     username: username.trim(),
     passwordHash: bcrypt.hashSync(password, 10),
     role: rank,
+    supervisorInspectorId,
   };
 
   if (!isSupabaseConfigured) {

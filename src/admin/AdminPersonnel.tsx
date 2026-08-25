@@ -5,11 +5,12 @@ import { apiFetch, useAuth, hasFullAccess, isReadOnly, RANK_LABEL } from "../aut
 import type { PersonnelUser, PersonnelRank } from "../auth/AuthContext";
 
 const POLL_MS = 10000;
-const CREATABLE_RANKS: PersonnelRank[] = ["acp", "inspector"];
+const CREATABLE_RANKS: PersonnelRank[] = ["acp", "inspector", "si", "ci"];
 
 export default function AdminPersonnel() {
   const { user } = useAuth();
-  const canManage = hasFullAccess(user?.role ?? "");
+  const canManage = hasFullAccess(user?.role ?? "") || user?.role === "acp" || user?.role === "inspector";
+  const canDelete = hasFullAccess(user?.role ?? "") || user?.role === "inspector";
   const readOnly = isReadOnly(user?.role ?? "");
   const [people, setPeople] = useState<PersonnelUser[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -47,8 +48,9 @@ export default function AdminPersonnel() {
     }
   }
 
+  const allowedRanks: PersonnelRank[] = user?.role === "acp" ? ["inspector"] : user?.role === "inspector" ? ["si", "ci"] : CREATABLE_RANKS;
   const ranked = [...people].sort((a, b) => {
-    const order: Record<PersonnelRank, number> = { cp: 0, dcp: 1, acp: 2, inspector: 3 };
+    const order: Record<PersonnelRank, number> = { cp: 0, dcp: 1, acp: 2, ci: 3, si: 4, inspector: 5 };
     return order[a.role] - order[b.role] || a.name.localeCompare(b.name);
   });
 
@@ -72,7 +74,7 @@ export default function AdminPersonnel() {
         )}
       </header>
 
-      {readOnly && (
+      {readOnly && user?.role !== "acp" && (
         <p className="mb-6 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-xs text-foreground">
           Read-only access — you can see the full command structure, but can't add or remove anyone.
         </p>
@@ -80,6 +82,7 @@ export default function AdminPersonnel() {
 
       {showAddForm && (
         <AddPersonnelForm
+          allowedRanks={allowedRanks}
           onClose={() => setShowAddForm(false)}
           onCreated={(person) => {
             setPeople((prev) => [...prev, person]);
@@ -115,7 +118,7 @@ export default function AdminPersonnel() {
                     {p.role === "inspector" ? (p.constableCount ?? 0) : "—"}
                   </td>
                   <td className="px-4 py-3.5">
-                    {canManage && !fixed && (
+                    {canDelete && !fixed && (
                       <button
                         onClick={() => removePerson(p)}
                         disabled={deletingId === p.id}
@@ -141,14 +144,16 @@ export default function AdminPersonnel() {
 function AddPersonnelForm({
   onClose,
   onCreated,
+  allowedRanks,
 }: {
   onClose: () => void;
   onCreated: (person: PersonnelUser) => void;
+  allowedRanks: PersonnelRank[];
 }) {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [rank, setRank] = useState<PersonnelRank>("inspector");
+  const [rank, setRank] = useState<PersonnelRank>(allowedRanks[0]);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
@@ -192,7 +197,7 @@ function AddPersonnelForm({
           onChange={(e) => setRank(e.target.value as PersonnelRank)}
           className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
         >
-          {CREATABLE_RANKS.map((r) => (
+          {allowedRanks.map((r) => (
             <option key={r} value={r}>
               {RANK_LABEL[r]}
             </option>
