@@ -58,6 +58,7 @@ export default function EmployeeDashboard() {
   const emp = user as EmployeeUser;
 
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("environment");
   const [capturedPhoto, setCapturedPhoto] = useState<{ file: File; previewUrl: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [checkInSuccess, setCheckInSuccess] = useState<{ verified: boolean } | null>(null);
@@ -96,13 +97,15 @@ export default function EmployeeDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function startCamera() {
+  async function startCamera(facingMode = cameraFacing) {
     setCameraError(null);
     stopCamera();
     const requestId = ++cameraRequestRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        // `ideal` lets laptops with a single webcam keep working while phones
+        // honour the requested selfie/back camera wherever available.
+        video: { facingMode: { ideal: facingMode } },
         audio: false,
       });
       // A late permission response must not reactivate the camera after a
@@ -210,6 +213,11 @@ export default function EmployeeDashboard() {
   function retake() {
     if (capturedPhoto) URL.revokeObjectURL(capturedPhoto.previewUrl);
     setCapturedPhoto(null);
+  }
+
+  function switchCamera(facingMode: "user" | "environment") {
+    setCameraFacing(facingMode);
+    void startCamera(facingMode);
   }
 
   async function handleCheckIn() {
@@ -418,7 +426,7 @@ export default function EmployeeDashboard() {
                 <VideoOff className="h-6 w-6 text-white/50" />
                 <p className="text-sm text-white/70">{cameraError}</p>
                 <button
-                  onClick={startCamera}
+                  onClick={() => void startCamera()}
                   className="mt-1 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10"
                 >
                   Retry camera access
@@ -431,6 +439,33 @@ export default function EmployeeDashboard() {
             )}
             <canvas ref={canvasRef} className="hidden" />
           </div>
+
+          {!capturedPhoto && (
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => switchCamera("user")}
+                className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
+                  cameraFacing === "user"
+                    ? "border-azure bg-azure/10 text-azure"
+                    : "border-border text-card-foreground hover:bg-muted"
+                }`}
+              >
+                Selfie camera
+              </button>
+              <button
+                type="button"
+                onClick={() => switchCamera("environment")}
+                className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
+                  cameraFacing === "environment"
+                    ? "border-azure bg-azure/10 text-azure"
+                    : "border-border text-card-foreground hover:bg-muted"
+                }`}
+              >
+                Back camera
+              </button>
+            </div>
+          )}
 
           {capturedPhoto ? (
             <button
