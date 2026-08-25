@@ -10,30 +10,36 @@ export function nextSlot(slot) {
   return i === -1 ? null : SHIFT_SLOTS[(i + 1) % SHIFT_SLOTS.length];
 }
 
+/** The rank hierarchy. CP/DCP are fixed (exactly one each, seeded, never created/deleted
+ * through the app). ACP and Inspector are created through the app by CP/DCP. */
+export const CREATABLE_RANKS = ["acp", "inspector"];
+export const FIXED_RANKS = ["cp", "dcp"];
+export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
+
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 /**
- * Three fixed admin accounts, seeded once. Employees are NOT seeded from env
- * vars at all — an admin creates them on demand from the dashboard, choosing
- * the username/password right there. That's the whole point of this design:
- * it doesn't matter how many employees exist, nothing about adding one
- * touches environment variables or a redeploy.
+ * Exactly two fixed personnel accounts, seeded once: one CP, one DCP. Reuses
+ * the same ADMIN_USERNAME/ADMIN_PASSWORD and ADMIN2_USERNAME/ADMIN2_PASSWORD
+ * env var names the app already had, so no new Vercel configuration is
+ * needed for this to keep working. ACP and Inspector accounts are never
+ * seeded — CP/DCP create them through the app (see createPersonnel below).
  */
-const SEED_ADMINS = [
-  { id: "admin-1", name: "Administrator One", usernameEnv: "ADMIN_USERNAME", usernameFallback: "admin", passwordEnv: "ADMIN_PASSWORD", passwordFallback: "Admin#2026" },
-  { id: "admin-2", name: "Administrator Two", usernameEnv: "ADMIN2_USERNAME", usernameFallback: "admin2", passwordEnv: "ADMIN2_PASSWORD", passwordFallback: "Admin2#2026" },
-  { id: "admin-3", name: "Administrator Three", usernameEnv: "ADMIN3_USERNAME", usernameFallback: "admin3", passwordEnv: "ADMIN3_PASSWORD", passwordFallback: "Admin3#2026" },
+const SEED_PERSONNEL = [
+  { id: "cp-1", rank: "cp", name: "Commissioner of Police", usernameEnv: "ADMIN_USERNAME", usernameFallback: "admin", passwordEnv: "ADMIN_PASSWORD", passwordFallback: "Admin#2026" },
+  { id: "dcp-1", rank: "dcp", name: "Deputy Commissioner of Police", usernameEnv: "ADMIN2_USERNAME", usernameFallback: "admin2", passwordEnv: "ADMIN2_PASSWORD", passwordFallback: "Admin2#2026" },
 ];
 
-function freshAdmins() {
-  return SEED_ADMINS.map((a) => ({
-    id: a.id,
-    code: "ADMIN",
-    name: a.name,
-    username: process.env[a.usernameEnv] || a.usernameFallback,
-    passwordHash: bcrypt.hashSync(process.env[a.passwordEnv] || a.passwordFallback, 10),
-    role: "admin",
+function freshPersonnel() {
+  return SEED_PERSONNEL.map((p) => ({
+    id: p.id,
+    code: p.rank.toUpperCase(),
+    name: p.name,
+    username: process.env[p.usernameEnv] || p.usernameFallback,
+    passwordHash: bcrypt.hashSync(process.env[p.passwordEnv] || p.passwordFallback, 10),
+    role: p.rank,
+    inspectorId: null,
   }));
 }
 
@@ -46,15 +52,30 @@ const COLUMN_MAP = {
   lastLocation: "last_location",
   lastCheckIn: "last_check_in",
   profilePhotoId: "profile_photo_id",
+  inspectorId: "inspector_id",
 };
 
-// `role` is implied by which table a row lives in (admins vs employees), so
-// there is no such column — the in-memory objects carry it, the rows don't.
+// `role` on a personnel row IS its rank column — kept as a separate in-memory
+// field only so the rest of the app (and the frontend) can treat every
+// account the same way (`user.role`) regardless of which table it came from.
 const NON_COLUMN_FIELDS = new Set(["role"]);
 
-function toRow(obj) {
+function toEmployeeRow(obj) {
   const row = {};
   for (const [k, v] of Object.entries(obj)) {
+    if (NON_COLUMN_FIELDS.has(k)) continue;
+    row[COLUMN_MAP[k] || k] = v;
+  }
+  return row;
+}
+
+function toPersonnelRow(obj) {
+  const row = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === "role") {
+      row.rank = v;
+      continue;
+    }
     if (NON_COLUMN_FIELDS.has(k)) continue;
     row[COLUMN_MAP[k] || k] = v;
   }
@@ -71,6 +92,7 @@ function fromEmployeeRow(row) {
     role: "employee",
     designation: row.designation,
     profilePhotoId: row.profile_photo_id,
+    inspectorId: row.inspector_id,
     shiftSlot: row.shift_slot,
     assignedPlace: row.assigned_place,
     onDuty: row.on_duty,
@@ -79,14 +101,14 @@ function fromEmployeeRow(row) {
   };
 }
 
-function fromAdminRow(row) {
+function fromPersonnelRow(row) {
   return {
     id: row.id,
     code: row.code,
     name: row.name,
     username: row.username,
     passwordHash: row.password_hash,
-    role: "admin",
+    role: row.rank,
   };
 }
 
@@ -101,7 +123,7 @@ function isUniqueViolation(error) {
 // ---------------------------------------------------------------------------
 const mem = {
   seeded: false,
-  admins: new Map(),
+  personnel: new Map(),
   employees: new Map(),
   sessions: new Map(),
   photos: new Map(),
@@ -109,12 +131,12 @@ const mem = {
 
 function memSeed() {
   if (mem.seeded) return;
-  for (const a of freshAdmins()) mem.admins.set(a.id, a);
+  for (const p of freshPersonnel()) mem.personnel.set(p.id, p);
   mem.seeded = true;
 }
 
 // ---------------------------------------------------------------------------
-// Seeding — runs at most once per project, ever. Whether an admin exists
+// Seeding — runs at most once per project, ever. Whether an account exists
 // right now is irrelevant to this check: it's gated on a single "has this
 // project ever been seeded" flag, not "is the table empty" — so a later cold
 // start never resurrects an account someone deleted on purpose.
@@ -125,8 +147,8 @@ async function seedSupabase() {
   const { data } = await supabase.from("meta").select("value").eq("key", "seeded").maybeSingle();
   if (data?.value) return;
 
-  const { error: adminErr } = await supabase.from("admins").upsert(freshAdmins().map(toRow));
-  if (adminErr) throw new Error(`Supabase seed (admins): ${adminErr.message}`);
+  const { error: personnelErr } = await supabase.from("personnel").upsert(freshPersonnel().map(toPersonnelRow));
+  if (personnelErr) throw new Error(`Supabase seed (personnel): ${personnelErr.message}`);
 
   const { error: metaErr } = await supabase.from("meta").upsert({ key: "seeded", value: true });
   if (metaErr) throw new Error(`Supabase seed (meta): ${metaErr.message}`);
@@ -139,19 +161,19 @@ export async function ensureSeeded() {
 }
 
 // ---------------------------------------------------------------------------
-// Users
+// Users (personnel + employees share the login/session flow)
 // ---------------------------------------------------------------------------
 
 export async function findUserByUsername(username) {
   await ensureSeeded();
   if (!isSupabaseConfigured) {
-    const admin = [...mem.admins.values()].find((a) => a.username === username);
-    if (admin) return admin;
+    const person = [...mem.personnel.values()].find((p) => p.username === username);
+    if (person) return person;
     return [...mem.employees.values()].find((e) => e.username === username) || null;
   }
 
-  const { data: admin } = await supabase.from("admins").select("*").eq("username", username).maybeSingle();
-  if (admin) return fromAdminRow(admin);
+  const { data: person } = await supabase.from("personnel").select("*").eq("username", username).maybeSingle();
+  if (person) return fromPersonnelRow(person);
   const { data: emp } = await supabase.from("employees").select("*").eq("username", username).maybeSingle();
   return emp ? fromEmployeeRow(emp) : null;
 }
@@ -159,11 +181,11 @@ export async function findUserByUsername(username) {
 export async function findUserById(id) {
   await ensureSeeded();
   if (!isSupabaseConfigured) {
-    return mem.admins.get(id) || mem.employees.get(id) || null;
+    return mem.personnel.get(id) || mem.employees.get(id) || null;
   }
 
-  const { data: admin } = await supabase.from("admins").select("*").eq("id", id).maybeSingle();
-  if (admin) return fromAdminRow(admin);
+  const { data: person } = await supabase.from("personnel").select("*").eq("id", id).maybeSingle();
+  if (person) return fromPersonnelRow(person);
   const { data: emp } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
   return emp ? fromEmployeeRow(emp) : null;
 }
@@ -205,13 +227,86 @@ export async function destroySession(token) {
 }
 
 // ---------------------------------------------------------------------------
-// Employees
+// Personnel (CP / DCP / ACP / Inspector)
+// ---------------------------------------------------------------------------
+
+export async function listPersonnel() {
+  await ensureSeeded();
+  if (!isSupabaseConfigured) return [...mem.personnel.values()];
+  const { data, error } = await supabase.from("personnel").select("*").order("rank").order("name");
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (data || []).map(fromPersonnelRow);
+}
+
+export async function getPersonnel(id) {
+  await ensureSeeded();
+  if (!isSupabaseConfigured) return mem.personnel.get(id) || null;
+  const { data } = await supabase.from("personnel").select("*").eq("id", id).maybeSingle();
+  return data ? fromPersonnelRow(data) : null;
+}
+
+/** CP/DCP-only: creates an ACP or Inspector account. CP/DCP themselves are fixed and never created here. */
+export async function createPersonnel({ name, username, password, rank }) {
+  await ensureSeeded();
+  const person = {
+    id: `${rank}-${crypto.randomUUID()}`,
+    code: rank.toUpperCase(),
+    name: name.trim(),
+    username: username.trim(),
+    passwordHash: bcrypt.hashSync(password, 10),
+    role: rank,
+  };
+
+  if (!isSupabaseConfigured) {
+    const takenByPerson = [...mem.personnel.values()].some((p) => p.username === person.username);
+    const takenByEmployee = [...mem.employees.values()].some((e) => e.username === person.username);
+    if (takenByPerson || takenByEmployee) throw new Error("That username is already taken");
+    mem.personnel.set(person.id, person);
+    return person;
+  }
+
+  const { data, error } = await supabase.from("personnel").insert(toPersonnelRow(person)).select().maybeSingle();
+  if (error) {
+    if (isUniqueViolation(error)) throw new Error("That username is already taken");
+    throw new Error(`Supabase: ${error.message}`);
+  }
+  return fromPersonnelRow(data);
+}
+
+/** Permanently removes an ACP/Inspector account and their session. CP/DCP are protected by the route layer. */
+export async function deletePersonnel(id) {
+  if (!isSupabaseConfigured) {
+    if (!mem.personnel.has(id)) return false;
+    mem.personnel.delete(id);
+    for (const [token, s] of mem.sessions) if (s.userId === id) mem.sessions.delete(token);
+    return true;
+  }
+
+  await supabase.from("sessions").delete().eq("user_id", id);
+  const { error, count } = await supabase.from("personnel").delete({ count: "exact" }).eq("id", id);
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (count ?? 0) > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Employees (constables)
 // ---------------------------------------------------------------------------
 
 export async function listEmployees() {
   await ensureSeeded();
   if (!isSupabaseConfigured) return [...mem.employees.values()];
   const { data, error } = await supabase.from("employees").select("*").order("code");
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (data || []).map(fromEmployeeRow);
+}
+
+/** Employees managed by one specific Inspector — this is the whole of an Inspector's world. */
+export async function listEmployeesByInspector(inspectorId) {
+  await ensureSeeded();
+  if (!isSupabaseConfigured) {
+    return [...mem.employees.values()].filter((e) => e.inspectorId === inspectorId);
+  }
+  const { data, error } = await supabase.from("employees").select("*").eq("inspector_id", inspectorId).order("code");
   if (error) throw new Error(`Supabase: ${error.message}`);
   return (data || []).map(fromEmployeeRow);
 }
@@ -224,11 +319,11 @@ export async function getEmployee(id) {
 }
 
 /**
- * Admin-initiated: creates one employee with a username/password chosen at
- * creation time. This is the only way employees come into existence now —
- * no seed list, no per-employee env vars, no fixed count.
+ * Creates one constable. `inspectorId` is who manages them — CP/DCP may set
+ * this to any Inspector (or leave unassigned); an Inspector creating their
+ * own constable always has it forced to themselves at the route layer.
  */
-export async function createEmployee({ name, username, password, code, designation }) {
+export async function createEmployee({ name, username, password, code, designation, inspectorId }) {
   await ensureSeeded();
   const employee = {
     id: `emp-${crypto.randomUUID()}`,
@@ -239,6 +334,7 @@ export async function createEmployee({ name, username, password, code, designati
     role: "employee",
     designation: designation?.trim() || null,
     profilePhotoId: null,
+    inspectorId: inspectorId || null,
     shiftSlot: null,
     assignedPlace: null,
     onDuty: false,
@@ -247,14 +343,14 @@ export async function createEmployee({ name, username, password, code, designati
   };
 
   if (!isSupabaseConfigured) {
-    if ([...mem.employees.values()].some((e) => e.username === employee.username)) {
-      throw new Error("That username is already taken");
-    }
+    const takenByEmployee = [...mem.employees.values()].some((e) => e.username === employee.username);
+    const takenByPerson = [...mem.personnel.values()].some((p) => p.username === employee.username);
+    if (takenByEmployee || takenByPerson) throw new Error("That username is already taken");
     mem.employees.set(employee.id, employee);
     return employee;
   }
 
-  const { data, error } = await supabase.from("employees").insert(toRow(employee)).select().maybeSingle();
+  const { data, error } = await supabase.from("employees").insert(toEmployeeRow(employee)).select().maybeSingle();
   if (error) {
     if (isUniqueViolation(error)) throw new Error("That username is already taken");
     throw new Error(`Supabase: ${error.message}`);
@@ -271,7 +367,7 @@ export async function updateEmployee(id, patch) {
     return updated;
   }
 
-  const { data, error } = await supabase.from("employees").update(toRow(patch)).eq("id", id).select().maybeSingle();
+  const { data, error } = await supabase.from("employees").update(toEmployeeRow(patch)).eq("id", id).select().maybeSingle();
   if (error) throw new Error(`Supabase: ${error.message}`);
   return data ? fromEmployeeRow(data) : null;
 }
@@ -309,7 +405,7 @@ export async function employeeForSlot(slot) {
 }
 
 // ---------------------------------------------------------------------------
-// Check-in photos
+// Check-in / profile photos
 // ---------------------------------------------------------------------------
 
 /** Uploads a photo and returns its storage id. `id` should already be unique. */

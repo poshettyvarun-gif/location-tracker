@@ -17,7 +17,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const user = await login(username.trim(), password);
-      navigate(user.role === "admin" ? "/admin" : "/employee", { replace: true });
+      navigate(user.role === "employee" ? "/employee" : "/admin", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -48,7 +48,7 @@ export default function LoginPage() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground"
-            placeholder="admin or employee1"
+            placeholder="e.g. cp, dcp, or employee1"
           />
         </label>
 

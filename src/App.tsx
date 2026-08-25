@@ -5,6 +5,7 @@ import RequireRole from "./auth/RequireRole";
 import LoginPage from "./auth/LoginPage";
 import AdminLayout from "./admin/AdminLayout";
 import AdminOverview from "./admin/AdminOverview";
+import AdminPersonnel from "./admin/AdminPersonnel";
 import AdminEmployeeDetail from "./admin/AdminEmployeeDetail";
 import AdminLiveMap from "./admin/AdminLiveMap";
 import EmployeeDashboard from "./employee/EmployeeDashboard";
@@ -13,7 +14,7 @@ function RootRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.role === "admin" ? "/admin" : "/employee"} replace />;
+  return <Navigate to={user.role === "employee" ? "/employee" : "/admin"} replace />;
 }
 
 export default function App() {
@@ -27,12 +28,13 @@ export default function App() {
           <Route
             path="/admin"
             element={
-              <RequireRole role="admin">
+              <RequireRole area="admin">
                 <AdminLayout />
               </RequireRole>
             }
           >
             <Route index element={<AdminOverview />} />
+            <Route path="personnel" element={<AdminPersonnel />} />
             <Route path="map" element={<AdminLiveMap />} />
             <Route path="employees/:id" element={<AdminEmployeeDetail />} />
           </Route>
@@ -40,7 +42,7 @@ export default function App() {
           <Route
             path="/employee"
             element={
-              <RequireRole role="employee">
+              <RequireRole area="employee">
                 <EmployeeDashboard />
               </RequireRole>
             }

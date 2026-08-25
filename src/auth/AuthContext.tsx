@@ -1,5 +1,23 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
+export type PersonnelRank = "cp" | "dcp" | "acp" | "inspector";
+
+export const RANK_LABEL: Record<PersonnelRank, string> = {
+  cp: "CP",
+  dcp: "DCP",
+  acp: "ACP",
+  inspector: "Inspector",
+};
+
+/** CP/DCP: unrestricted read/write. ACP: read-only. Inspector: scoped to their own constables (checked server-side). */
+export function hasFullAccess(role: string): boolean {
+  return role === "cp" || role === "dcp";
+}
+
+export function isReadOnly(role: string): boolean {
+  return role === "acp";
+}
+
 export interface EmployeeUser {
   id: string;
   code: string;
@@ -8,6 +26,10 @@ export interface EmployeeUser {
   role: "employee";
   designation: string | null;
   profilePhotoUrl: string | null;
+  /** Which Inspector manages this constable — null if unassigned. */
+  inspectorId: string | null;
+  /** Only present on admin-area list/detail responses, resolved server-side for display. */
+  inspectorName?: string | null;
   shiftSlot: "morning" | "afternoon" | "night" | null;
   assignedPlace: string | null;
   onDuty: boolean;
@@ -26,13 +48,17 @@ export interface EmployeeUser {
   } | null;
 }
 
-export interface AdminUser {
+export interface PersonnelUser {
   id: string;
+  code: string;
   name: string;
-  role: "admin";
+  username: string;
+  role: PersonnelRank;
+  /** Only present on the personnel directory list, Inspector rows only. */
+  constableCount?: number;
 }
 
-export type CurrentUser = EmployeeUser | AdminUser;
+export type CurrentUser = EmployeeUser | PersonnelUser;
 
 interface AuthState {
   user: CurrentUser | null;

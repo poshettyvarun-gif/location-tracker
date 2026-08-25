@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { AlertTriangle, ArrowLeft, MapPin, Power, Radio, Trash2 } from "lucide-react";
-import { apiFetch } from "../auth/AuthContext";
+import { apiFetch, useAuth, isReadOnly } from "../auth/AuthContext";
 import type { EmployeeUser } from "../auth/AuthContext";
 
 const SHIFT_OPTIONS = [
@@ -19,7 +19,10 @@ const POLL_MS = 5000;
 export default function AdminEmployeeDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const readOnly = isReadOnly(user?.role ?? "");
   const [emp, setEmp] = useState<EmployeeUser | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [place, setPlace] = useState("");
   const [savingPlace, setSavingPlace] = useState(false);
   const [savingShift, setSavingShift] = useState(false);
@@ -34,8 +37,14 @@ export default function AdminEmployeeDetail() {
         if (cancelled) return;
         setEmp(data);
         setPlace((prev) => (document.activeElement?.id === "place-input" ? prev : data.assignedPlace ?? ""));
-      } catch {
-        /* transient network error, next poll will retry */
+      } catch (err) {
+        if (cancelled) return;
+        // A 404 here means this employee doesn't exist, or (for an
+        // Inspector) belongs to someone else — the API scopes the lookup
+        // rather than exposing a 403 that would leak the record's existence.
+        if (err instanceof Error && err.message.toLowerCase().includes("not found")) {
+          setNotFound(true);
+        }
       }
     };
     load();
@@ -115,6 +124,20 @@ export default function AdminEmployeeDetail() {
     }
   }
 
+  if (notFound) {
+    return (
+      <div className="p-10 text-center">
+        <p className="text-sm text-muted-foreground">
+          This employee doesn't exist, or isn't assigned to you.
+        </p>
+        <Link to="/admin" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-azure hover:underline">
+          <ArrowLeft className="h-4 w-4" />
+          Back to employees
+        </Link>
+      </div>
+    );
+  }
+
   if (!emp) {
     return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
   }
@@ -149,6 +172,9 @@ export default function AdminEmployeeDetail() {
             <p className="text-sm text-muted-foreground">
               {emp.code} · {emp.username}
               {emp.designation ? ` · ${emp.designation}` : ""}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Inspector: {emp.inspectorName || "Unassigned"}
             </p>
           </div>
         </div>
@@ -210,49 +236,63 @@ export default function AdminEmployeeDetail() {
               <MapPin className="h-4 w-4 text-azure" />
               Assigned location
             </h2>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Tell {emp.name.split(" ")[0]} where to go over radio, then record it here.
-            </p>
-            <textarea
-              id="place-input"
-              value={place}
-              onChange={(e) => setPlace(e.target.value)}
-              rows={2}
-              className="mb-3 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
-              placeholder="e.g. MG Road Junction, Zone A"
-            />
-            <button
-              onClick={savePlace}
-              disabled={savingPlace}
-              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-            >
-              {savingPlace ? "Saving…" : "Save location"}
-            </button>
+            {readOnly ? (
+              <p className="text-sm text-foreground">{emp.assignedPlace || "Not assigned yet."}</p>
+            ) : (
+              <>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Tell {emp.name.split(" ")[0]} where to go over radio, then record it here.
+                </p>
+                <textarea
+                  id="place-input"
+                  value={place}
+                  onChange={(e) => setPlace(e.target.value)}
+                  rows={2}
+                  className="mb-3 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+                  placeholder="e.g. MG Road Junction, Zone A"
+                />
+                <button
+                  onClick={savePlace}
+                  disabled={savingPlace}
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                >
+                  {savingPlace ? "Saving…" : "Save location"}
+                </button>
+              </>
+            )}
           </section>
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
             <h2 className="mb-3 font-display text-sm font-semibold text-card-foreground">Shift</h2>
-            <select
-              value={emp.shiftSlot ?? ""}
-              onChange={(e) => setShift(e.target.value)}
-              disabled={savingShift}
-              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
-            >
-              {SHIFT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            {readOnly ? (
+              <p className="text-sm text-foreground">
+                {SHIFT_OPTIONS.find((o) => o.value === (emp.shiftSlot ?? ""))?.label ?? "Unassigned"}
+              </p>
+            ) : (
+              <>
+                <select
+                  value={emp.shiftSlot ?? ""}
+                  onChange={(e) => setShift(e.target.value)}
+                  disabled={savingShift}
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+                >
+                  {SHIFT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
 
-            {emp.onDuty && (
-              <button
-                onClick={forceEndShift}
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
-              >
-                <Power className="h-4 w-4" />
-                Force end shift (emergency override)
-              </button>
+                {emp.onDuty && (
+                  <button
+                    onClick={forceEndShift}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
+                  >
+                    <Power className="h-4 w-4" />
+                    Force end shift (emergency override)
+                  </button>
+                )}
+              </>
             )}
           </section>
         </div>
@@ -261,7 +301,7 @@ export default function AdminEmployeeDetail() {
       <section className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-soft">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-display text-sm font-semibold text-card-foreground">Last check-in</h2>
-          {(emp.lastCheckIn || emp.lastLocation) && (
+          {!readOnly && (emp.lastCheckIn || emp.lastLocation) && (
             <button
               onClick={clearStatus}
               className="flex items-center gap-1.5 text-xs font-medium text-destructive hover:underline"
@@ -296,33 +336,35 @@ export default function AdminEmployeeDetail() {
         )}
       </section>
 
-      <section className="mt-6 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
-        <h2 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-destructive">
-          <AlertTriangle className="h-4 w-4" />
-          Danger zone
-        </h2>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Permanently deletes {emp.name}'s account, login, and check-in photo. Unlike "Clear
-          history" above, this can't be undone and the record will not come back on its own —
-          type their name to confirm.
-        </p>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-            placeholder={`Type "${emp.name}" to confirm`}
-            className="w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground sm:flex-1"
-          />
-          <button
-            onClick={deleteEmployee}
-            disabled={confirmName.trim() !== emp.name || deleting}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-          >
-            <Trash2 className="h-4 w-4" />
-            {deleting ? "Deleting…" : "Delete employee permanently"}
-          </button>
-        </div>
-      </section>
+      {!readOnly && (
+        <section className="mt-6 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
+          <h2 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-destructive">
+            <AlertTriangle className="h-4 w-4" />
+            Danger zone
+          </h2>
+          <p className="mb-4 text-xs text-muted-foreground">
+            Permanently deletes {emp.name}'s account, login, and check-in photo. Unlike "Clear
+            history" above, this can't be undone and the record will not come back on its own —
+            type their name to confirm.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <input
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+              placeholder={`Type "${emp.name}" to confirm`}
+              className="w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground sm:flex-1"
+            />
+            <button
+              onClick={deleteEmployee}
+              disabled={confirmName.trim() !== emp.name || deleting}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deleting ? "Deleting…" : "Delete employee permanently"}
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

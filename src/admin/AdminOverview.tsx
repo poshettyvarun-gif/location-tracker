@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "r
 import { Link } from "react-router-dom";
 import { ChevronRight, MapPin, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
-import { apiFetch } from "../auth/AuthContext";
-import type { EmployeeUser } from "../auth/AuthContext";
+import { apiFetch, useAuth, hasFullAccess, isReadOnly } from "../auth/AuthContext";
+import type { EmployeeUser, PersonnelUser } from "../auth/AuthContext";
 
 const SHIFT_LABEL: Record<string, string> = {
   morning: "Morning",
@@ -14,6 +14,8 @@ const SHIFT_LABEL: Record<string, string> = {
 const POLL_MS = 8000;
 
 export default function AdminOverview() {
+  const { user } = useAuth();
+  const readOnly = isReadOnly(user?.role ?? "");
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -68,14 +70,23 @@ export default function AdminOverview() {
             {onDutyCount} of {employees.length} on duty right now.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:shrink-0"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add employee
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:shrink-0"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add employee
+          </button>
+        )}
       </header>
+
+      {readOnly && (
+        <p className="mb-6 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-xs text-foreground">
+          Read-only access — you can view every employee and who manages them, but can't add, edit, or
+          remove anyone.
+        </p>
+      )}
 
       {showAddForm && (
         <AddEmployeeForm
@@ -89,16 +100,17 @@ export default function AdminOverview() {
 
       {employees.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No employees yet — click "Add employee" to create the first account.
+          {readOnly ? "No employees yet." : 'No employees yet — click "Add employee" to create the first account.'}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Employee</th>
                 <th className="px-4 py-3 font-medium">Employee ID</th>
                 <th className="px-4 py-3 font-medium">Designation</th>
+                <th className="px-4 py-3 font-medium">Inspector</th>
                 <th className="px-4 py-3 font-medium">Shift</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Location</th>
@@ -119,6 +131,7 @@ export default function AdminOverview() {
                   </td>
                   <td className="px-4 py-4 text-muted-foreground">{e.code}</td>
                   <td className="px-4 py-4 text-muted-foreground">{e.designation || "—"}</td>
+                  <td className="px-4 py-4 text-muted-foreground">{e.inspectorName || "Unassigned"}</td>
                   <td className="px-4 py-4 text-muted-foreground">
                     {e.shiftSlot ? SHIFT_LABEL[e.shiftSlot] : "Unassigned"}
                   </td>
@@ -144,15 +157,17 @@ export default function AdminOverview() {
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => resetEmployee(e)}
-                        disabled={resettingId === e.id}
-                        title="Clear history and end shift"
-                        aria-label={`Clear history and end shift for ${e.name}`}
-                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {!readOnly && (
+                        <button
+                          onClick={() => resetEmployee(e)}
+                          disabled={resettingId === e.id}
+                          title="Clear history and end shift"
+                          aria-label={`Clear history and end shift for ${e.name}`}
+                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                       <Link
                         to={`/admin/employees/${e.id}`}
                         className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
@@ -196,14 +211,31 @@ function AddEmployeeForm({
   onClose: () => void;
   onCreated: (emp: EmployeeUser) => void;
 }) {
+  const { user } = useAuth();
+  // CP/DCP manage the whole force, so they choose which Inspector a new
+  // constable reports to. An Inspector creating one always gets themselves —
+  // enforced server-side too, this just keeps the picker out of their way.
+  const canPickInspector = hasFullAccess(user?.role ?? "");
+
   const [name, setName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [designation, setDesignation] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [photo, setPhoto] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [inspectors, setInspectors] = useState<PersonnelUser[]>([]);
+  const [inspectorId, setInspectorId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!canPickInspector) return;
+    apiFetch("/api/admin/personnel")
+      .then((people: PersonnelUser[]) => setInspectors(people.filter((p) => p.role === "inspector")))
+      .catch(() => {
+        /* non-critical — form still works with no inspector assigned */
+      });
+  }, [canPickInspector]);
 
   function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -222,6 +254,7 @@ function AddEmployeeForm({
       form.append("password", password);
       if (employeeId.trim()) form.append("code", employeeId.trim());
       if (designation.trim()) form.append("designation", designation.trim());
+      if (canPickInspector && inspectorId) form.append("inspectorId", inspectorId);
       if (photo) form.append("photo", photo.file);
 
       const emp = await apiFetch("/api/admin/employees", { method: "POST", body: form });
@@ -284,7 +317,7 @@ function AddEmployeeForm({
         <input
           value={designation}
           onChange={(e) => setDesignation(e.target.value)}
-          placeholder="Designation (e.g. Sub-Inspector)"
+          placeholder="Designation (e.g. Constable)"
           className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
         />
         <input
@@ -302,13 +335,27 @@ function AddEmployeeForm({
           autoCorrect="off"
           className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
         />
+        {canPickInspector && (
+          <select
+            value={inspectorId}
+            onChange={(e) => setInspectorId(e.target.value)}
+            className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
+          >
+            <option value="">Inspector: Unassigned</option>
+            {inspectors.map((i) => (
+              <option key={i.id} value={i.id}>
+                Inspector: {i.name}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           required
           minLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password (6+ characters)"
-          className="rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground sm:col-span-2"
+          className={`rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground ${canPickInspector ? "" : "sm:col-span-2"}`}
         />
       </div>
       <button

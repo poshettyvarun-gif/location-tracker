@@ -1,17 +1,25 @@
 -- Command Dashboard — Supabase schema.
 -- Run this once in Supabase → SQL Editor. Safe to re-run (uses IF NOT EXISTS).
+--
+-- If you already have data from before the rank system (a table called
+-- `admins` with plain admin/employee accounts), do NOT run this file against
+-- it — use supabase/migrate_ranks.sql instead, which converts that data in
+-- place rather than creating a parallel `personnel` table.
 
 create table if not exists public.meta (
   key text primary key,
   value boolean not null
 );
 
-create table if not exists public.admins (
+-- CP, DCP, ACP, Inspector. CP/DCP are fixed (exactly one each, seeded from
+-- env vars). ACP and Inspector accounts are created through the app by CP/DCP.
+create table if not exists public.personnel (
   id text primary key,
   code text not null,
   name text not null,
   username text unique not null,
-  password_hash text not null
+  password_hash text not null,
+  rank text not null check (rank in ('cp', 'dcp', 'acp', 'inspector'))
 );
 
 create table if not exists public.employees (
@@ -22,6 +30,9 @@ create table if not exists public.employees (
   password_hash text not null,
   designation text,
   profile_photo_id text,
+  -- Which Inspector manages this constable. Null means unassigned — visible
+  -- to CP/DCP/ACP but not editable by any Inspector until assigned.
+  inspector_id text references public.personnel (id) on delete set null,
   shift_slot text check (shift_slot in ('morning', 'afternoon', 'night')),
   assigned_place text,
   on_duty boolean not null default false,
@@ -30,26 +41,22 @@ create table if not exists public.employees (
   created_at timestamptz not null default now()
 );
 
--- Added after the initial release — safe no-ops on a fresh table that
--- already has these columns from the create table above.
-alter table public.employees add column if not exists designation text;
-alter table public.employees add column if not exists profile_photo_id text;
-
 create table if not exists public.sessions (
   token text primary key,
   user_id text not null,
-  role text not null check (role in ('admin', 'employee')),
+  role text not null check (role in ('cp', 'dcp', 'acp', 'inspector', 'employee')),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null
 );
 
 create index if not exists sessions_expires_at_idx on public.sessions (expires_at);
+create index if not exists employees_inspector_id_idx on public.employees (inspector_id);
 
 -- The server connects with the service_role key, which bypasses Row Level
 -- Security entirely — RLS is enabled anyway as defence in depth in case the
 -- anon/public key is ever used against these tables by mistake.
 alter table public.meta enable row level security;
-alter table public.admins enable row level security;
+alter table public.personnel enable row level security;
 alter table public.employees enable row level security;
 alter table public.sessions enable row level security;
 -- No policies are created, so the anon/authenticated roles get zero access

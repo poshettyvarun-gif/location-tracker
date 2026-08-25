@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, LogOut, MapPinned, Menu, Shield, X } from "lucide-react";
-import { useAuth } from "../auth/AuthContext";
+import { LayoutDashboard, LogOut, MapPinned, Menu, Shield, Users, X } from "lucide-react";
+import { useAuth, RANK_LABEL, type PersonnelRank } from "../auth/AuthContext";
 
 const NAV_LINK_CLASS = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
@@ -16,6 +16,15 @@ export default function AdminLayout() {
   // Close the drawer on every navigation so it doesn't stay open after
   // tapping a link on a phone.
   useEffect(() => setSidebarOpen(false), [location.pathname]);
+
+  // AdminLayout only ever renders for the admin area (RequireRole guards
+  // this), so role here is always a PersonnelRank at runtime even though the
+  // union type also includes "employee".
+  const rank = user && user.role !== "employee" ? (user.role as PersonnelRank) : null;
+  const rankLabel = rank ? RANK_LABEL[rank] : "";
+  // Inspectors only ever see their own constables — the personnel directory
+  // (the org chart itself) is invisible to them, same as the API enforces.
+  const showPersonnelLink = rank !== "inspector";
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -51,7 +60,7 @@ export default function AdminLayout() {
             <Shield className="h-7 w-7 text-gold" />
             <div className="leading-tight">
               <p className="font-display text-sm font-semibold">Command Dashboard</p>
-              <p className="text-[11px] text-white/60">Admin</p>
+              <p className="text-[11px] text-white/60">{rankLabel}</p>
             </div>
           </div>
           <button
@@ -68,6 +77,12 @@ export default function AdminLayout() {
             <LayoutDashboard className="h-4 w-4 shrink-0" />
             Employees
           </NavLink>
+          {showPersonnelLink && (
+            <NavLink to="/admin/personnel" className={NAV_LINK_CLASS}>
+              <Users className="h-4 w-4 shrink-0" />
+              Personnel
+            </NavLink>
+          )}
           <NavLink to="/admin/map" className={NAV_LINK_CLASS}>
             <MapPinned className="h-4 w-4 shrink-0" />
             Live Map
@@ -75,7 +90,9 @@ export default function AdminLayout() {
         </nav>
 
         <div className="mx-3 mb-4 space-y-2">
-          <p className="truncate px-1 text-[11px] text-white/60">Signed in as {user?.name}</p>
+          <p className="truncate px-1 text-[11px] text-white/60">
+            Signed in as {user?.name} ({rankLabel})
+          </p>
           <button
             onClick={() => logout()}
             className="flex w-full items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white/85 hover:bg-white/15"

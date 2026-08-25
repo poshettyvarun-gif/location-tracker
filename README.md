@@ -1,10 +1,21 @@
-# Command Dashboard — Admin & Employee Duty Tracking
+# Command Dashboard — Duty Tracking with a Rank Hierarchy
 
-An admin dashboard and an employee dashboard for tracking field officers: admin
-assigns each officer a location, the officer checks in there with a photo (GPS
-captured automatically), and admin can see each officer's live location. Shifts
-run in a strict relay — an officer can't log out until the next shift's officer
+An admin dashboard and a constable dashboard for tracking field officers: a
+command structure (CP → DCP → ACP → Inspector → Constable) assigns each
+constable a location, the constable checks in there with a photo (GPS captured
+automatically), and command can see each constable's live location. Shifts run
+in a strict relay — a constable can't log out until the next shift's constable
 has logged in — so a post is never left unmanned.
+
+**Ranks and access:**
+
+| Rank | Count | Access |
+| --- | --- | --- |
+| CP | 1 (fixed) | Full visibility and full create/edit/delete, everywhere. |
+| DCP | 1 (fixed) | Same as CP. |
+| ACP | as many as CP/DCP create | Sees everything CP/DCP sees — every constable, which Inspector runs them, headcounts per Inspector — but **read-only**: no create, edit, or delete. |
+| Inspector | as many as CP/DCP create | Manages only their **own** constables (create, edit, delete). Cannot see or touch another Inspector's constables — the API returns 404, not 403, so existence isn't leaked either. |
+| Constable / Employee | created by their own Inspector | Self-service only: **Today's Employee Dashboard** — camera + GPS check-in. No admin access at all. |
 
 ## Stack
 
@@ -47,8 +58,17 @@ to Supabase over REST, not a direct Postgres connection).
 
 In the Supabase dashboard: **SQL Editor → New query**, paste in the contents
 of [`supabase/schema.sql`](supabase/schema.sql) from this repo, and run it.
-This creates the `admins`, `employees`, `sessions`, and `meta` tables, plus a
-private `checkin-photos` storage bucket. It's safe to re-run.
+This creates the `personnel`, `employees`, `sessions`, and `meta` tables, plus
+a private `checkin-photos` storage bucket. It's safe to re-run.
+
+> **Already have data from before the rank system?** Don't run `schema.sql`
+> against it — that's for a project that's never been seeded. Instead run
+> [`supabase/migrate_ranks.sql`](supabase/migrate_ranks.sql) once: it renames
+> `admins` → `personnel`, adds the `rank` column (mapping your existing 2
+> admin accounts to CP and DCP), and adds `inspector_id` to `employees`. In
+> both the SQL Editor, double-check the dropdown next to **Run** says
+> **Database**, not **Logs** — picking the wrong one gives a misleading
+> generic error instead of running the SQL.
 
 ### 3. Get your API keys
 
@@ -80,10 +100,10 @@ the defaults.
 | --- | --- |
 | `SUPABASE_URL` | from step 3 |
 | `SUPABASE_SERVICE_ROLE_KEY` | from step 3 |
-| `ADMIN_PASSWORD`, `ADMIN2_PASSWORD`, `ADMIN3_PASSWORD` | real passwords, not the defaults |
+| `ADMIN_PASSWORD`, `ADMIN2_PASSWORD` | real passwords, not the defaults — these are the CP and DCP logins |
 
-That's it — 5 variables total. Employees are **not** configured here; see
-"Login details" below for how those get created.
+That's it — 4 variables total. ACP, Inspector, and Constable accounts are
+**not** configured here; see "Login details" below for how those get created.
 
 See `.env.example` for the full list. Skipping the password vars leaves the
 app on the values published in this README — anyone who reads this file can
@@ -91,8 +111,8 @@ log in.
 
 ### 6. Redeploy
 
-The first request after deploy seeds the 3 admin accounts into Supabase
-(visible in **Table Editor** → `admins`). From then on, seeding never runs
+The first request after deploy seeds the CP and DCP accounts into Supabase
+(visible in **Table Editor** → `personnel`). From then on, seeding never runs
 again for this project — deleting an account is permanent even across future
 redeploys.
 
@@ -113,35 +133,44 @@ enabled under System Settings → Privacy & Security → Location Services.
 
 ## Login details
 
-Seeds **3 fixed admin accounts** and **zero employees**.
+Seeds **2 fixed accounts** (CP and DCP) and **zero ACP/Inspector/Constable
+accounts**.
 
-| Role | Username | Password |
+| Rank | Username | Password |
 | --- | --- | --- |
-| Admin | `admin` | `Admin#2026` |
-| Admin | `admin2` | `Admin2#2026` |
-| Admin | `admin3` | `Admin3#2026` |
+| CP | `admin` | `Admin#2026` |
+| DCP | `admin2` | `Admin2#2026` |
 
-**Change every one of these before any real deployment** via `ADMIN_PASSWORD` /
-`ADMIN2_PASSWORD` / `ADMIN3_PASSWORD` — the values above are published here
-and in the repo, so anyone who reads this file can log in on the defaults.
+**Change both of these before any real deployment** via `ADMIN_PASSWORD` /
+`ADMIN2_PASSWORD` — the values above are published here and in the repo, so
+anyone who reads this file can log in on the defaults.
 
-Employees don't have a seed list or env vars at all — as many as you need,
-created from the dashboard:
+Everyone else is created from inside the dashboard, not env vars:
 
-1. Sign in as any admin → **Employees** → **Add employee**.
-2. Enter their name, and choose a username + password (6+ characters) right
-   there — that's the actual login you're handing them, not a placeholder.
-3. Tell the employee those credentials directly. There's no invite email and
-   no self-signup.
-4. Assign them a shift (morning/afternoon/night) from their detail page
-   whenever you want them in the relay — new employees start unassigned.
+1. **ACP or Inspector accounts** — sign in as CP or DCP → **Personnel** →
+   **Add personnel**. Pick their rank, name, and a username + password (6+
+   characters) right there — that's the real login you hand them.
+2. **Constables** — sign in as CP, DCP, *or* an Inspector → **Employees** →
+   **Add employee**. An Inspector's new constable is automatically assigned to
+   them; CP/DCP can pick which Inspector a constable reports to (or leave it
+   unassigned).
+3. Tell each person their credentials directly. There's no invite email and no
+   self-signup.
+4. Assign a constable a shift (morning/afternoon/night) from their detail page
+   whenever you want them in the relay — new constables start unassigned.
 
 ## How it works
 
-**Admin**
-- **Employees** (`/admin`) — every employee, on-duty status, shift, and
-  assigned location, plus **Add employee** to create a new account (name,
-  username, password — no fixed count, no env var per person).
+**CP / DCP** — full command view and full control:
+- **Employees** (`/admin`) — every constable across every Inspector, their
+  on-duty status, shift, assigned location, and which Inspector runs them,
+  plus **Add employee** (optionally assigning an Inspector).
+- **Personnel** (`/admin/personnel`) — the org chart itself: every CP/DCP/
+  ACP/Inspector, with a live constable headcount per Inspector, plus **Add
+  personnel** to create a new ACP or Inspector. CP and DCP rows are marked
+  **Fixed** — they can't be deleted (there's always exactly one of each).
+  Deleting an Inspector who still has constables is blocked until you
+  reassign or delete those constables first.
 - **Employee detail** (`/admin/employees/:id`) — live location on a map (polls
   every 5s), a text field to record the location you've assigned them (over
   radio/phone — this just logs it), shift assignment, their last check-in
@@ -152,21 +181,32 @@ created from the dashboard:
   - **Delete employee** (Danger zone, type their name to confirm) —
     permanently removes their account, login, session, and photo. This does
     not come back on a redeploy or restart.
-- **Live Map** (`/admin/map`) — every on-duty employee's last known location
-  plotted at once.
+- **Live Map** (`/admin/map`) — every on-duty constable's last known location
+  plotted at once, across the whole force.
 
-**Employee**
+**ACP** — the same **Employees**, **Personnel**, and **Live Map** views as
+CP/DCP, but every create/edit/delete control is hidden and the API rejects
+those calls even if attempted directly. A banner on each page makes the
+read-only status explicit.
+
+**Inspector** — the **Employees** and **Live Map** views are scoped to just
+their own constables; the **Personnel** link is hidden entirely (Inspectors
+don't see the org chart, only their own slice of it). Opening another
+Inspector's constable by URL returns a 404, the same response as a
+nonexistent ID, so an Inspector can't tell whether a record exists elsewhere.
+
+**Constable / Employee**
 - Signing in **starts the shift** — this is the "next person logged in" event
   that relieves the previous shift's officer.
 - Sees their assigned location, then takes/uploads a photo to check in — GPS
   is captured automatically at submit time and sent with the photo.
-- While on duty, the browser sends a location ping every 15s so admin's view
+- While on duty, the browser sends a location ping every 15s so command's view
   stays live.
-- **Log out is disabled** until the next shift's officer has logged in. The
+- **Log out is disabled** until the next shift's constable has logged in. The
   three shifts form a fixed cycle: morning → afternoon → night → morning
-  (next day), so the post is always covered. If someone genuinely can't
-  reach the next officer (lost phone, emergency), admin can force-end their
-  shift from the employee detail page.
+  (next day), so the post is always covered. If someone genuinely can't reach
+  the next officer (lost phone, emergency), their Inspector (or CP/DCP) can
+  force-end their shift from the employee detail page.
 
 ## Data & privacy notes (read before deploying for real)
 
@@ -197,14 +237,15 @@ api/
 server/
   app.js             Express routes (auth, admin, duty/check-in/location, photos)
   index.js           Local dev entrypoint — app.listen()
-  db.js              Records, sessions, seed-once logic, shift-relay helpers
+  db.js              Records, sessions, seed-once logic, rank/scoping, shift-relay helpers
   supabaseClient.js  Supabase client; isSupabaseConfigured gates the in-memory fallback
 supabase/
-  schema.sql         Run once in the Supabase SQL Editor — tables + storage bucket
+  schema.sql         Run once in the Supabase SQL Editor, on a project never seeded before
+  migrate_ranks.sql  Run once instead, against a database with existing pre-rank-system data
 src/
   App.tsx            Routes: /login, /admin/*, /employee
-  auth/              AuthContext, LoginPage, RequireRole route guard
-  admin/             AdminLayout, AdminOverview, AdminEmployeeDetail, AdminLiveMap
+  auth/              AuthContext (ranks, permission helpers), LoginPage, RequireRole route guard
+  admin/             AdminLayout, AdminOverview, AdminPersonnel, AdminEmployeeDetail, AdminLiveMap
   employee/          EmployeeDashboard (camera check-in + gated logout)
 vercel.json          SPA rewrites + /api routing
 .env.example         Every supported environment variable

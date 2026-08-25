@@ -9,7 +9,12 @@ import {
   createSession,
   getSessionUser,
   destroySession,
+  listPersonnel,
+  getPersonnel,
+  createPersonnel,
+  deletePersonnel,
   listEmployees,
+  listEmployeesByInspector,
   getEmployee,
   createEmployee,
   updateEmployee,
@@ -21,6 +26,7 @@ import {
   loadPhotoBuffer,
   deletePhoto,
   SHIFT_SLOTS,
+  CREATABLE_RANKS,
 } from "./db.js";
 
 const app = express();
@@ -34,7 +40,11 @@ const upload = multer({
   limits: { fileSize: 4 * 1024 * 1024 },
 });
 
-function publicEmployee(e) {
+function publicPersonnel(p, extra = {}) {
+  return { id: p.id, code: p.code, name: p.name, username: p.username, role: p.role, ...extra };
+}
+
+function publicEmployee(e, extra = {}) {
   return {
     id: e.id,
     code: e.code,
@@ -43,12 +53,19 @@ function publicEmployee(e) {
     role: e.role,
     designation: e.designation ?? null,
     profilePhotoUrl: e.profilePhotoId ? `/api/photos/${e.profilePhotoId}` : null,
+    inspectorId: e.inspectorId ?? null,
     shiftSlot: e.shiftSlot,
     assignedPlace: e.assignedPlace,
     onDuty: e.onDuty,
     lastLocation: e.lastLocation,
     lastCheckIn: e.lastCheckIn,
+    ...extra,
   };
+}
+
+async function publicEmployeeWithInspector(e) {
+  const inspectorName = e.inspectorId ? (await getPersonnel(e.inspectorId))?.name ?? null : null;
+  return publicEmployee(e, { inspectorName });
 }
 
 /** Wraps async handlers so a rejected promise becomes a 500 instead of hanging. */
@@ -64,14 +81,40 @@ const auth = wrap(async (req, res, next) => {
   next();
 });
 
-function requireAdmin(req, res, next) {
-  if (req.user.role !== "admin") return res.status(403).json({ error: "Admin only" });
-  next();
-}
-
 function requireEmployee(req, res, next) {
   if (req.user.role !== "employee") return res.status(403).json({ error: "Employee only" });
   next();
+}
+
+/** CP, DCP, ACP, or Inspector — i.e. anyone who isn't a constable. */
+function requireAdminArea(req, res, next) {
+  if (req.user.role === "employee") return res.status(403).json({ error: "Not authorized" });
+  next();
+}
+
+/** CP/DCP only — full read/write across the whole force. */
+function requireFullAccess(req, res, next) {
+  if (req.user.role !== "cp" && req.user.role !== "dcp") {
+    return res.status(403).json({ error: "Restricted to CP/DCP" });
+  }
+  next();
+}
+
+/** Blocks ACP from any route that changes data. ACP sees everything, changes nothing. */
+function requireNotReadOnly(req, res, next) {
+  if (req.user.role === "acp") return res.status(403).json({ error: "ACP has read-only access" });
+  next();
+}
+
+/** The personnel directory itself is invisible to Inspectors — they only ever see their own constables. */
+function requireOrgVisibility(req, res, next) {
+  if (req.user.role === "inspector") return res.status(403).json({ error: "Not authorized" });
+  next();
+}
+
+/** An Inspector may only see/act on constables where inspector_id is themselves. CP/DCP/ACP are unrestricted here. */
+function inspectorOwns(user, employee) {
+  return user.role !== "inspector" || employee.inspectorId === user.id;
 }
 
 // ---- Auth ----
@@ -91,7 +134,7 @@ app.post(
       user.role === "employee" && user.shiftSlot ? await updateEmployee(user.id, { onDuty: true }) : user;
     res.json({
       token,
-      user: current.role === "admin" ? { id: current.id, name: current.name, role: "admin" } : publicEmployee(current),
+      user: current.role === "employee" ? publicEmployee(current) : publicPersonnel(current),
     });
   }),
 );
@@ -119,7 +162,7 @@ app.get(
   auth,
   wrap(async (req, res) => {
     const fresh = await findUserById(req.user.id);
-    res.json(fresh.role === "admin" ? { id: fresh.id, name: fresh.name, role: "admin" } : publicEmployee(fresh));
+    res.json(fresh.role === "employee" ? publicEmployee(fresh) : publicPersonnel(fresh));
   }),
 );
 
@@ -206,30 +249,109 @@ app.post(
   }),
 );
 
-// ---- Admin ----
+// ---- Personnel directory (CP / DCP / ACP / Inspector) ----
+// Invisible to Inspectors — they only ever see their own constables.
+
+app.get(
+  "/api/admin/personnel",
+  auth,
+  requireAdminArea,
+  requireOrgVisibility,
+  wrap(async (req, res) => {
+    const [people, employees] = await Promise.all([listPersonnel(), listEmployees()]);
+    const countByInspector = new Map();
+    for (const e of employees) {
+      if (!e.inspectorId) continue;
+      countByInspector.set(e.inspectorId, (countByInspector.get(e.inspectorId) || 0) + 1);
+    }
+    res.json(
+      people.map((p) =>
+        publicPersonnel(p, p.role === "inspector" ? { constableCount: countByInspector.get(p.id) || 0 } : {}),
+      ),
+    );
+  }),
+);
+
+/** CP/DCP create an ACP or Inspector account. CP/DCP themselves are fixed — never created here. */
+app.post(
+  "/api/admin/personnel",
+  auth,
+  requireFullAccess,
+  wrap(async (req, res) => {
+    const { name, username, password, rank } = req.body || {};
+    if (!name?.trim() || !username?.trim() || !password) {
+      return res.status(400).json({ error: "Name, username, and password are required" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    if (!CREATABLE_RANKS.includes(rank)) {
+      return res.status(400).json({ error: "Rank must be ACP or Inspector" });
+    }
+    try {
+      const person = await createPersonnel({ name, username, password, rank });
+      res.status(201).json(publicPersonnel(person));
+    } catch (err) {
+      res.status(409).json({ error: err.message });
+    }
+  }),
+);
+
+/** Permanently removes an ACP/Inspector account. CP/DCP are fixed and protected from this route. */
+app.delete(
+  "/api/admin/personnel/:id",
+  auth,
+  requireFullAccess,
+  wrap(async (req, res) => {
+    const person = await getPersonnel(req.params.id);
+    if (!person) return res.status(404).json({ error: "Not found" });
+    if (person.role === "cp" || person.role === "dcp") {
+      return res.status(403).json({ error: "CP and DCP are fixed accounts and can't be deleted" });
+    }
+    if (person.role === "inspector") {
+      const owned = await listEmployeesByInspector(person.id);
+      if (owned.length > 0) {
+        return res.status(409).json({
+          error: `${person.name} still has ${owned.length} constable${owned.length === 1 ? "" : "s"} assigned. Reassign or delete them first.`,
+        });
+      }
+    }
+    await deletePersonnel(req.params.id);
+    res.json({ ok: true });
+  }),
+);
+
+// ---- Employees (constables) ----
 
 app.get(
   "/api/admin/employees",
   auth,
-  requireAdmin,
+  requireAdminArea,
   wrap(async (req, res) => {
-    const employees = await listEmployees();
-    res.json(employees.map(publicEmployee));
+    if (req.user.role === "inspector") {
+      const mine = await listEmployeesByInspector(req.user.id);
+      return res.json(mine.map((e) => publicEmployee(e, { inspectorName: req.user.name })));
+    }
+    const [employees, people] = await Promise.all([listEmployees(), listPersonnel()]);
+    const nameById = new Map(people.map((p) => [p.id, p.name]));
+    res.json(employees.map((e) => publicEmployee(e, { inspectorName: e.inspectorId ? nameById.get(e.inspectorId) ?? null : null })));
   }),
 );
 
 /**
- * Admin creates an employee account directly — no env vars, no seed list, no
- * redeploy. Multipart because the profile photo (optional) rides along with
- * the form fields in one request.
+ * Creates a constable account. CP/DCP may assign any Inspector (or leave
+ * unassigned); an Inspector creating one always has it forced to themselves.
+ * ACP cannot create anything.
  */
 app.post(
   "/api/admin/employees",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   upload.single("photo"),
   wrap(async (req, res) => {
     const { name, username, password, code, designation } = req.body || {};
+    let { inspectorId } = req.body || {};
     if (!name?.trim() || !username?.trim() || !password) {
       return res.status(400).json({ error: "Name, username, and password are required" });
     }
@@ -237,9 +359,18 @@ app.post(
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
 
+    if (req.user.role === "inspector") {
+      inspectorId = req.user.id;
+    } else if (inspectorId) {
+      const target = await getPersonnel(inspectorId);
+      if (!target || target.role !== "inspector") {
+        return res.status(400).json({ error: "inspectorId must refer to an Inspector" });
+      }
+    }
+
     let emp;
     try {
-      emp = await createEmployee({ name, username, password, code, designation });
+      emp = await createEmployee({ name, username, password, code, designation, inspectorId });
     } catch (err) {
       return res.status(409).json({ error: err.message });
     }
@@ -250,38 +381,43 @@ app.post(
       emp = await updateEmployee(emp.id, { profilePhotoId: photoId });
     }
 
-    res.status(201).json(publicEmployee(emp));
+    res.status(201).json(await publicEmployeeWithInspector(emp));
   }),
 );
 
 app.get(
   "/api/admin/employees/:id",
   auth,
-  requireAdmin,
+  requireAdminArea,
   wrap(async (req, res) => {
     const emp = await getEmployee(req.params.id);
-    if (!emp) return res.status(404).json({ error: "Not found" });
-    res.json(publicEmployee(emp));
+    if (!emp || !inspectorOwns(req.user, emp)) return res.status(404).json({ error: "Not found" });
+    res.json(await publicEmployeeWithInspector(emp));
   }),
 );
 
 app.post(
   "/api/admin/employees/:id/assign-place",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
+    const existing = await getEmployee(req.params.id);
+    if (!existing || !inspectorOwns(req.user, existing)) return res.status(404).json({ error: "Not found" });
     const { place } = req.body || {};
     const emp = await updateEmployee(req.params.id, { assignedPlace: place || null });
-    if (!emp) return res.status(404).json({ error: "Not found" });
-    res.json(publicEmployee(emp));
+    res.json(await publicEmployeeWithInspector(emp));
   }),
 );
 
 app.post(
   "/api/admin/employees/:id/assign-shift",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
+    const existing = await getEmployee(req.params.id);
+    if (!existing || !inspectorOwns(req.user, existing)) return res.status(404).json({ error: "Not found" });
     const { shiftSlot } = req.body || {};
     if (shiftSlot !== null && shiftSlot !== undefined && shiftSlot !== "" && !SHIFT_SLOTS.includes(shiftSlot)) {
       return res.status(400).json({ error: "Invalid shift slot" });
@@ -293,8 +429,7 @@ app.post(
       }
     }
     const emp = await updateEmployee(req.params.id, { shiftSlot: shiftSlot || null });
-    if (!emp) return res.status(404).json({ error: "Not found" });
-    res.json(publicEmployee(emp));
+    res.json(await publicEmployeeWithInspector(emp));
   }),
 );
 
@@ -302,11 +437,13 @@ app.post(
 app.post(
   "/api/admin/employees/:id/force-end-shift",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
+    const existing = await getEmployee(req.params.id);
+    if (!existing || !inspectorOwns(req.user, existing)) return res.status(404).json({ error: "Not found" });
     const emp = await updateEmployee(req.params.id, { onDuty: false });
-    if (!emp) return res.status(404).json({ error: "Not found" });
-    res.json(publicEmployee(emp));
+    res.json(await publicEmployeeWithInspector(emp));
   }),
 );
 
@@ -328,11 +465,13 @@ async function clearEmployeeStatus(id, { alsoEndShift = false } = {}) {
 app.post(
   "/api/admin/employees/:id/clear-status",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
+    const existing = await getEmployee(req.params.id);
+    if (!existing || !inspectorOwns(req.user, existing)) return res.status(404).json({ error: "Not found" });
     const emp = await clearEmployeeStatus(req.params.id);
-    if (!emp) return res.status(404).json({ error: "Not found" });
-    res.json(publicEmployee(emp));
+    res.json(await publicEmployeeWithInspector(emp));
   }),
 );
 
@@ -340,11 +479,13 @@ app.post(
 app.post(
   "/api/admin/employees/:id/reset",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
+    const existing = await getEmployee(req.params.id);
+    if (!existing || !inspectorOwns(req.user, existing)) return res.status(404).json({ error: "Not found" });
     const emp = await clearEmployeeStatus(req.params.id, { alsoEndShift: true });
-    if (!emp) return res.status(404).json({ error: "Not found" });
-    res.json(publicEmployee(emp));
+    res.json(await publicEmployeeWithInspector(emp));
   }),
 );
 
@@ -356,10 +497,12 @@ app.post(
 app.delete(
   "/api/admin/employees/:id",
   auth,
-  requireAdmin,
+  requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
-    const removed = await deleteEmployee(req.params.id);
-    if (!removed) return res.status(404).json({ error: "Not found" });
+    const existing = await getEmployee(req.params.id);
+    if (!existing || !inspectorOwns(req.user, existing)) return res.status(404).json({ error: "Not found" });
+    await deleteEmployee(req.params.id);
     res.json({ ok: true });
   }),
 );
