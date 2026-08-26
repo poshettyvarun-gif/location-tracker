@@ -199,10 +199,13 @@ function memSeed() {
 let seeding = null;
 
 async function seedSupabase() {
-  const { data: existing, error: existingErr } = await supabase.from("personnel").select("id").in("id", SEED_PERSONNEL.map((person) => person.id));
+  const { data: existing, error: existingErr } = await supabase.from("personnel").select("id, username");
   if (existingErr) throw new Error(`Supabase seed lookup: ${existingErr.message}`);
-  const present = new Set((existing || []).map((person) => person.id));
-  const missing = freshPersonnel().filter((person) => !present.has(person.id));
+  const presentIds = new Set((existing || []).map((person) => person.id));
+  const presentUsernames = new Set((existing || []).map((person) => person.username));
+  // A prior manually-created command account may use the same username with a
+  // different id. Keep it intact rather than failing every sign-in seed.
+  const missing = freshPersonnel().filter((person) => !presentIds.has(person.id) && !presentUsernames.has(person.username));
   const { error: personnelErr } = missing.length ? await supabase.from("personnel").insert(missing.map(toPersonnelRow)) : { error: null };
   if (personnelErr) throw new Error(`Supabase seed (personnel): ${personnelErr.message}`);
 
