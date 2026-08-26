@@ -60,8 +60,8 @@ export function nextSlot(slot) {
 
 /** The rank hierarchy. CP/DCP are fixed (exactly one each, seeded, never created/deleted
  * through the app). ACP and Inspector are created through the app by CP/DCP. */
-export const CREATABLE_RANKS = ["acp", "inspector", "si", "ci"];
-export const FIXED_RANKS = ["cp", "dcp"];
+export const CREATABLE_RANKS = ["inspector", "si", "ci"];
+export const FIXED_RANKS = ["cp", "dcp", "acp"];
 export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
 
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
@@ -77,6 +77,13 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60;
 const SEED_PERSONNEL = [
   { id: "cp-1", rank: "cp", name: "Commissioner of Police", usernameEnv: "ADMIN_USERNAME", usernameFallback: "admin", passwordEnv: "ADMIN_PASSWORD", passwordFallback: "Admin#2026" },
   { id: "dcp-1", rank: "dcp", name: "Deputy Commissioner of Police", usernameEnv: "ADMIN2_USERNAME", usernameFallback: "admin2", passwordEnv: "ADMIN2_PASSWORD", passwordFallback: "Admin2#2026" },
+  { id: "dcp-2", rank: "dcp", name: "Deputy Commissioner of Police Two", usernameEnv: "DCP2_USERNAME", usernameFallback: "dcp2", passwordEnv: "DCP2_PASSWORD", passwordFallback: "Dcp2#2026" },
+  { id: "dcp-3", rank: "dcp", name: "Deputy Commissioner of Police Three", usernameEnv: "DCP3_USERNAME", usernameFallback: "dcp3", passwordEnv: "DCP3_PASSWORD", passwordFallback: "Dcp3#2026" },
+  { id: "acp-1", rank: "acp", name: "Assistant Commissioner of Police One", usernameEnv: "ACP1_USERNAME", usernameFallback: "acp1", passwordEnv: "ACP1_PASSWORD", passwordFallback: "Acp1#2026" },
+  { id: "acp-2", rank: "acp", name: "Assistant Commissioner of Police Two", usernameEnv: "ACP2_USERNAME", usernameFallback: "acp2", passwordEnv: "ACP2_PASSWORD", passwordFallback: "Acp2#2026" },
+  { id: "acp-3", rank: "acp", name: "Assistant Commissioner of Police Three", usernameEnv: "ACP3_USERNAME", usernameFallback: "acp3", passwordEnv: "ACP3_PASSWORD", passwordFallback: "Acp3#2026" },
+  { id: "acp-4", rank: "acp", name: "Assistant Commissioner of Police Four", usernameEnv: "ACP4_USERNAME", usernameFallback: "acp4", passwordEnv: "ACP4_PASSWORD", passwordFallback: "Acp4#2026" },
+  { id: "acp-5", rank: "acp", name: "Assistant Commissioner of Police Five", usernameEnv: "ACP5_USERNAME", usernameFallback: "acp5", passwordEnv: "ACP5_PASSWORD", passwordFallback: "Acp5#2026" },
 ];
 
 function freshPersonnel() {
@@ -192,10 +199,11 @@ function memSeed() {
 let seeding = null;
 
 async function seedSupabase() {
-  const { data } = await supabase.from("meta").select("value").eq("key", "seeded").maybeSingle();
-  if (data?.value) return;
-
-  const { error: personnelErr } = await supabase.from("personnel").upsert(freshPersonnel().map(toPersonnelRow));
+  const { data: existing, error: existingErr } = await supabase.from("personnel").select("id").in("id", SEED_PERSONNEL.map((person) => person.id));
+  if (existingErr) throw new Error(`Supabase seed lookup: ${existingErr.message}`);
+  const present = new Set((existing || []).map((person) => person.id));
+  const missing = freshPersonnel().filter((person) => !present.has(person.id));
+  const { error: personnelErr } = missing.length ? await supabase.from("personnel").insert(missing.map(toPersonnelRow)) : { error: null };
   if (personnelErr) throw new Error(`Supabase seed (personnel): ${personnelErr.message}`);
 
   const { error: metaErr } = await supabase.from("meta").upsert({ key: "seeded", value: true });
@@ -254,6 +262,16 @@ export async function createSession(userId, role, expiresAt = Date.now() + SESSI
     .insert({ token, user_id: userId, role, expires_at: new Date(expiresAt).toISOString() });
   if (error) throw new Error(`Supabase: ${error.message}`);
   return token;
+}
+
+/** Attendance reporting uses retained sign-in sessions; destructive logout removes only the active token. */
+export async function listSessionsForAttendance(from, to) {
+  if (!isSupabaseConfigured) {
+    return [...mem.sessions.values()].filter((session) => session.role === "employee" && session.createdAt >= from && session.createdAt < to);
+  }
+  const { data, error } = await supabase.from("sessions").select("user_id, role, created_at, expires_at").eq("role", "employee").gte("created_at", new Date(from).toISOString()).lt("created_at", new Date(to).toISOString());
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (data || []).map((row) => ({ userId: row.user_id, role: row.role, createdAt: new Date(row.created_at).getTime(), expiresAt: new Date(row.expires_at).getTime() }));
 }
 
 export async function getSessionUser(token) {

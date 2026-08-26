@@ -5,7 +5,7 @@ import { apiFetch, useAuth, hasFullAccess, isReadOnly, RANK_LABEL } from "../aut
 import type { PersonnelUser, PersonnelRank } from "../auth/AuthContext";
 
 const POLL_MS = 10000;
-const CREATABLE_RANKS: PersonnelRank[] = ["acp", "inspector", "si", "ci"];
+const CREATABLE_RANKS: PersonnelRank[] = ["inspector", "si", "ci"];
 
 export default function AdminPersonnel() {
   const { user } = useAuth();
@@ -48,7 +48,7 @@ export default function AdminPersonnel() {
     }
   }
 
-  const allowedRanks: PersonnelRank[] = user?.role === "acp" ? ["inspector"] : user?.role === "inspector" ? ["si", "ci"] : CREATABLE_RANKS;
+  const allowedRanks: PersonnelRank[] = user?.role === "inspector" ? ["si", "ci"] : CREATABLE_RANKS;
   const ranked = [...people].sort((a, b) => {
     const order: Record<PersonnelRank, number> = { cp: 0, dcp: 1, acp: 2, ci: 3, si: 4, inspector: 5 };
     return order[a.role] - order[b.role] || a.name.localeCompare(b.name);
@@ -104,8 +104,9 @@ export default function AdminPersonnel() {
           </thead>
           <tbody>
             {ranked.map((p) => {
-              const fixed = p.role === "cp" || p.role === "dcp";
+              const fixed = (p.role === "cp" || p.role === "dcp" || p.role === "acp") && /^(cp|dcp|acp)-\d+$/.test(p.id);
               return (
+                <>
                 <tr key={p.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                   <td className="px-4 py-3.5 font-medium text-card-foreground">{p.name}</td>
                   <td className="px-4 py-3.5 text-muted-foreground">{p.username}</td>
@@ -132,6 +133,15 @@ export default function AdminPersonnel() {
                     {fixed && <span className="block text-right text-xs text-muted-foreground">Fixed</span>}
                   </td>
                 </tr>
+                {p.role === "inspector" && p.teamMembers && (
+                  <tr key={`${p.id}-team`} className="border-b border-border bg-muted/30">
+                    <td colSpan={5} className="px-4 py-3 text-xs text-muted-foreground">
+                      <details><summary className="cursor-pointer font-semibold text-azure">Open team — {p.teamMembers.length} assigned worker{p.teamMembers.length === 1 ? "" : "s"}</summary>
+                      <div className="mt-2 flex flex-wrap gap-2">{p.teamMembers.length ? p.teamMembers.map((member) => <span key={member.id} className="rounded-full bg-card px-2 py-1">{member.name} · {member.role === "employee" ? "Constable" : RANK_LABEL[member.role]}</span>) : "No SI, CI, or constables assigned."}</div></details>
+                    </td>
+                  </tr>
+                )}
+                </>
               );
             })}
           </tbody>

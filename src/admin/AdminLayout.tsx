@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, LogOut, MapPinned, Menu, Shield, Users, X } from "lucide-react";
+import { ClipboardList, LayoutDashboard, LogOut, MapPinned, Menu, Shield, Users, X } from "lucide-react";
 import { useAuth, RANK_LABEL, type PersonnelRank } from "../auth/AuthContext";
 
 const NAV_LINK_CLASS = ({ isActive }: { isActive: boolean }) =>
@@ -135,6 +135,10 @@ export default function AdminLayout() {
               {shell.personnel}
             </NavLink>
           )}
+          <NavLink to="/admin/attendance" className={NAV_LINK_CLASS}>
+            <ClipboardList className="h-4 w-4 shrink-0" />
+            Attendance report
+          </NavLink>
           <NavLink to="/admin/map" className={NAV_LINK_CLASS}>
             <MapPinned className="h-4 w-4 shrink-0" />
             {shell.map}

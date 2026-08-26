@@ -17,7 +17,7 @@ export function hasFullAccess(role: string): boolean {
 }
 
 export function isReadOnly(role: string): boolean {
-  return role === "acp" || role === "si" || role === "ci";
+  return role === "si" || role === "ci";
 }
 
 export interface EmployeeUser {
@@ -58,6 +58,7 @@ export interface PersonnelUser {
   role: PersonnelRank;
   /** Only present on the personnel directory list, Inspector rows only. */
   constableCount?: number;
+  teamMembers?: { id: string; name: string; role: PersonnelRank | "employee" }[];
 }
 
 export type CurrentUser = EmployeeUser | PersonnelUser;

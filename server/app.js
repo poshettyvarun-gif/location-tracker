@@ -7,6 +7,7 @@ import {
   findUserByUsername,
   findUserById,
   createSession,
+  listSessionsForAttendance,
   getSessionUser,
   destroySession,
   listPersonnel,
@@ -105,7 +106,7 @@ function requireFullAccess(req, res, next) {
 
 /** Blocks ACP from any route that changes data. ACP sees everything, changes nothing. */
 function requireNotReadOnly(req, res, next) {
-  if (["acp", "si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "This role has read-only access" });
+  if (["si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "This role has read-only access" });
   next();
 }
 
@@ -121,8 +122,7 @@ function inspectorOwns(user, employee) {
 }
 
 function allowedPersonnelRanks(user) {
-  if (["cp", "dcp"].includes(user.role)) return ["acp", "inspector", "si", "ci"];
-  if (user.role === "acp") return ["inspector"];
+  if (["cp", "dcp", "acp"].includes(user.role)) return ["inspector", "si", "ci"];
   if (user.role === "inspector") return ["si", "ci"];
   return [];
 }
@@ -131,6 +131,18 @@ async function inspectorHasCapacity(inspectorId, excludingEmployeeId = null) {
   if (!inspectorId) return true;
   const assigned = await listEmployeesByInspector(inspectorId);
   return assigned.filter((employee) => employee.id !== excludingEmployeeId).length < MAX_CONSTABLES_PER_INSPECTOR;
+}
+
+function localDateKey(at) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: process.env.SHIFT_TIME_ZONE || "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+}
+
+function reportRange(period, date) {
+  const selected = /^\d{4}-\d{2}-\d{2}$/.test(date || "") ? date : localDateKey(Date.now());
+  const start = period === "month" ? `${selected.slice(0, 7)}-01` : selected;
+  const end = new Date(`${period === "month" ? `${selected.slice(0, 7)}-01` : selected}T00:00:00Z`);
+  if (period === "month") end.setUTCMonth(end.getUTCMonth() + 1); else end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end: end.toISOString().slice(0, 10) };
 }
 
 // ---- Auth ----
@@ -268,6 +280,30 @@ app.post(
 // Invisible to Inspectors — they only ever see their own constables.
 
 app.get(
+  "/api/admin/reports/attendance",
+  auth,
+  requireAdminArea,
+  wrap(async (req, res) => {
+    const period = req.query.period === "month" ? "month" : "day";
+    const { start, end } = reportRange(period, String(req.query.date || ""));
+    const [allEmployees, sessions] = await Promise.all([req.user.role === "inspector" ? listEmployeesByInspector(req.user.id) : listEmployees(), listSessionsForAttendance(Date.parse(`${start}T00:00:00Z`), Date.parse(`${end}T00:00:00Z`))]);
+    const sessionsByEmployee = new Map();
+    for (const session of sessions) {
+      const current = sessionsByEmployee.get(session.userId);
+      if (!current || current.createdAt < session.createdAt) sessionsByEmployee.set(session.userId, session);
+    }
+    const today = localDateKey(Date.now());
+    res.json(allEmployees.filter((employee) => employee.shiftSlot).map((employee) => {
+      const session = sessionsByEmployee.get(employee.id);
+      const checkIn = employee.lastCheckIn && localDateKey(employee.lastCheckIn.at) >= start && localDateKey(employee.lastCheckIn.at) < end ? employee.lastCheckIn : null;
+      const location = employee.lastLocation && localDateKey(employee.lastLocation.at) >= start && localDateKey(employee.lastLocation.at) < end ? employee.lastLocation : null;
+      const missed = !session && start < today;
+      return { id: employee.id, name: employee.name, code: employee.code, inspectorName: employee.inspectorId ? null : null, shift: employee.shiftSlot, shiftWindow: employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : "22:00–06:00", loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : employee.onDuty && start === today ? "On duty" : session ? "Completed" : "No attendance" };
+    }));
+  }),
+);
+
+app.get(
   "/api/admin/personnel",
   auth,
   requireAdminArea,
@@ -285,13 +321,19 @@ app.get(
     }
     res.json(
       people.map((p) =>
-        publicPersonnel(p, p.role === "inspector" ? { constableCount: countByInspector.get(p.id) || 0 } : {}),
+        publicPersonnel(p, p.role === "inspector" ? {
+          constableCount: countByInspector.get(p.id) || 0,
+          teamMembers: [
+            ...people.filter((member) => member.supervisorInspectorId === p.id && ["si", "ci"].includes(member.role)).map((member) => ({ id: member.id, name: member.name, role: member.role })),
+            ...employees.filter((employee) => employee.inspectorId === p.id).map((employee) => ({ id: employee.id, name: employee.name, role: "employee" })),
+          ],
+        } : {}),
       ),
     );
   }),
 );
 
-/** CP/DCP create senior ranks; ACP creates Inspectors; Inspectors create SI/CI. */
+/** CP/DCP/ACP create Inspectors, SI and CI; Inspectors create SI/CI. */
 app.post(
   "/api/admin/personnel",
   auth,
@@ -324,8 +366,8 @@ app.delete(
   wrap(async (req, res) => {
     const person = await getPersonnel(req.params.id);
     if (!person) return res.status(404).json({ error: "Not found" });
-    if (person.role === "cp" || person.role === "dcp") {
-      return res.status(403).json({ error: "CP and DCP are fixed accounts and can't be deleted" });
+    if (["cp", "dcp", "acp"].includes(person.role) && /^((cp|dcp|acp)-\d+)$/.test(person.id)) {
+      return res.status(403).json({ error: "Fixed command accounts can't be deleted" });
     }
     if (req.user.role === "inspector" && (person.supervisorInspectorId !== req.user.id || !["si", "ci"].includes(person.role))) {
       return res.status(403).json({ error: "You can only remove SI or CI accounts you created" });

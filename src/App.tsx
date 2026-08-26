@@ -8,6 +8,7 @@ import AdminOverview from "./admin/AdminOverview";
 import AdminPersonnel from "./admin/AdminPersonnel";
 import AdminEmployeeDetail from "./admin/AdminEmployeeDetail";
 import AdminLiveMap from "./admin/AdminLiveMap";
+import AdminAttendanceReport from "./admin/AdminAttendanceReport";
 import EmployeeDashboard from "./employee/EmployeeDashboard";
 
 function RootRedirect() {
@@ -36,6 +37,7 @@ export default function App() {
             <Route index element={<AdminOverview />} />
             <Route path="personnel" element={<AdminPersonnel />} />
             <Route path="map" element={<AdminLiveMap />} />
+            <Route path="attendance" element={<AdminAttendanceReport />} />
             <Route path="employees/:id" element={<AdminEmployeeDetail />} />
           </Route>
 
