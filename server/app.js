@@ -25,7 +25,6 @@ import {
   loadPhotoBuffer,
   deletePhoto,
   SHIFT_SLOTS,
-  currentShiftEndsAt,
   CREATABLE_RANKS,
 } from "./db.js";
 
@@ -151,8 +150,7 @@ app.post(
     // Every field worker is present from the moment they log in. Their
     // dashboard immediately starts its GPS watch, and a normal logout marks
     // them off duty again. Shift assignment is no longer part of this flow.
-    const shiftExpiry = user.role === "employee" && user.shiftSlot ? currentShiftEndsAt() : undefined;
-    const token = await createSession(user.id, user.role, shiftExpiry);
+    const token = await createSession(user.id, user.role);
     const current = user.role === "employee" ? await updateEmployee(user.id, { onDuty: true }) : user;
     res.json({
       token,
