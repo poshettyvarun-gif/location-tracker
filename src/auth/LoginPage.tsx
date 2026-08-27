@@ -35,7 +35,7 @@ export default function LoginPage() {
       <section className="relative z-10 w-full max-w-[650px] pt-7">
         <div className="rounded-[2rem] border border-white/90 bg-white/95 px-6 pb-11 pt-12 shadow-[0_22px_48px_-18px_rgba(0,55,78,.38)] sm:px-9 sm:pb-12 sm:pt-14">
           <div className="flex items-center justify-center gap-5 sm:gap-8" aria-label="Official Telangana police identity">
-            <img src="/official-logos/telangana-government-emblem.webp" alt="Government of Telangana emblem" className="h-[76px] w-[76px] object-contain sm:h-[88px] sm:w-[88px]" />
+            <img src="/official-logos/telangana-government-emblem-transparent.png" alt="Government of Telangana emblem" className="h-[76px] w-[76px] object-contain sm:h-[88px] sm:w-[88px]" />
             <img src="/official-logos/telangana-state-police.jpeg" alt="Telangana State Police" className="h-[86px] w-[86px] object-contain sm:h-[102px] sm:w-[102px]" />
             <img src="/official-logos/telangana-rising-2047.png" alt="Telangana Rising 2047" className="h-[76px] w-[64px] object-contain sm:h-[88px] sm:w-[74px]" />
           </div>
