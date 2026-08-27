@@ -281,12 +281,12 @@ app.get(
       if (!current || current.createdAt < session.createdAt) sessionsByEmployee.set(session.userId, session);
     }
     const today = localDateKey(Date.now());
-    res.json(allEmployees.filter((employee) => employee.shiftSlot).map((employee) => {
+    res.json(allEmployees.map((employee) => {
       const session = sessionsByEmployee.get(employee.id);
       const checkIn = employee.lastCheckIn && localDateKey(employee.lastCheckIn.at) >= start && localDateKey(employee.lastCheckIn.at) < end ? employee.lastCheckIn : null;
       const location = employee.lastLocation && localDateKey(employee.lastLocation.at) >= start && localDateKey(employee.lastLocation.at) < end ? employee.lastLocation : null;
       const missed = !session && start < today;
-      return { id: employee.id, name: employee.name, code: employee.code, inspectorName: employee.inspectorId ? null : null, shift: employee.shiftSlot, shiftWindow: employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : "22:00–06:00", loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : employee.onDuty && start === today ? "On duty" : session ? "Completed" : "No attendance" };
+      return { id: employee.id, name: employee.name, code: employee.code, designation: employee.designation || "Field worker", phone: employee.phone, shift: employee.shiftSlot, shiftWindow: employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : employee.shiftSlot === "night" ? "22:00–06:00" : "Not assigned", loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : employee.onDuty && start === today ? "On duty" : session ? "Completed" : "No attendance" };
     }));
   }),
 );
