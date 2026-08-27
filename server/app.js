@@ -148,11 +148,12 @@ app.post(
       return res.status(401).json({ error: "This mobile number is not registered" });
     }
 
-    // Employee sessions end exactly when their active shift ends. Unassigned
-    // employees retain the standard short admin-style session for account setup.
+    // Every field worker is present from the moment they log in. Their
+    // dashboard immediately starts its GPS watch, and a normal logout marks
+    // them off duty again. Shift assignment is no longer part of this flow.
     const shiftExpiry = user.role === "employee" && user.shiftSlot ? currentShiftEndsAt() : undefined;
     const token = await createSession(user.id, user.role, shiftExpiry);
-    const current = user.role === "employee" && user.shiftSlot ? await updateEmployee(user.id, { onDuty: true }) : user;
+    const current = user.role === "employee" ? await updateEmployee(user.id, { onDuty: true }) : user;
     res.json({
       token,
       user: current.role === "employee" ? publicEmployee(current) : publicPersonnel(current),

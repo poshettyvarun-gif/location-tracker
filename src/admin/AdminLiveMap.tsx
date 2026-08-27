@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Circle, CircleMarker, MapContainer, TileLayer, useMap } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, TileLayer, useMap, ZoomControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { Radio, Users, X } from "lucide-react";
 import { apiFetch } from "../auth/AuthContext";
@@ -66,8 +66,9 @@ export default function AdminLiveMap() {
 
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
         <div className="relative h-[620px] min-h-[440px]">
-          <MapContainer center={HYDERABAD_CENTER} zoom={12} className="h-full w-full" scrollWheelZoom>
+          <MapContainer center={HYDERABAD_CENTER} zoom={12} zoomControl={false} className="h-full w-full" scrollWheelZoom>
             <InvalidateOnMount />
+            <ZoomControl position="topright" />
             <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             {locatedWorkers.map((worker) => {
               const location = worker.mapLocation!;
@@ -78,7 +79,7 @@ export default function AdminLiveMap() {
 
           <div className="absolute left-4 top-4 z-[500] rounded-xl bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
             <p className="text-sm font-semibold text-slate-800">Live worker visibility</p>
-            <p className="mt-0.5 text-xs text-slate-500"><span className="font-semibold text-[#19744b]">{locatedWorkers.filter((worker) => worker.onDuty).length} on duty</span> · {locatedWorkers.length} sharing GPS · {unlocatedWorkers.length} awaiting GPS</p>
+            <p className="mt-0.5 text-xs text-slate-500"><span className="font-semibold text-[#19744b]">{locatedWorkers.filter((worker) => worker.onDuty).length} present</span> · {locatedWorkers.length} sharing GPS · {unlocatedWorkers.length} awaiting GPS</p>
           </div>
 
           {selected && (
@@ -86,7 +87,7 @@ export default function AdminLiveMap() {
               <button onClick={() => setSelectedId(null)} aria-label="Close worker details" className="absolute right-3 top-3 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
               <div className="flex gap-4 pr-6">
                 {selected.profilePhotoUrl || selected.lastCheckIn?.photoUrl ? <img src={selected.profilePhotoUrl || selected.lastCheckIn?.photoUrl} alt="" className="h-20 w-20 shrink-0 rounded-full object-cover" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-sky-100 text-lg font-semibold text-sky-700">{initials(selected.name)}</div>}
-                <div className="min-w-0 text-sm text-slate-600"><p className="font-semibold text-slate-800">{selected.name}</p><p>{selected.designation || "Field worker"}</p><p>Mobile: {selected.phone}</p><p className={`mt-1 font-medium ${selected.onDuty ? "text-[#19744b]" : "text-red-600"}`}>{selected.onDuty ? "On duty" : "Absent / Off duty"}</p></div>
+                <div className="min-w-0 text-sm text-slate-600"><p className="font-semibold text-slate-800">{selected.name}</p><p>{selected.designation || "Field worker"}</p><p>Mobile: {selected.phone}</p><p className={`mt-1 font-medium ${selected.onDuty ? "text-[#19744b]" : "text-red-600"}`}>{selected.onDuty ? "Present / On duty" : "Absent / Off duty"}</p></div>
               </div>
               {selected.mapLocation && <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500"><p>{selected.mapLocation.lat.toFixed(5)}, {selected.mapLocation.lng.toFixed(5)}{selected.mapLocation.accuracy ? ` (±${Math.round(selected.mapLocation.accuracy)}m)` : ""}</p><p className="mt-0.5">Last update: {new Date(selected.mapLocation.at).toLocaleString()}</p></div>}
             </article>
