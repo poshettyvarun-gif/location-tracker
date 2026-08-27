@@ -215,14 +215,28 @@ function memSeed() {
 let seeding = null;
 
 async function seedSupabase() {
-  const { error: personnelErr } = await supabase
-    .from("personnel")
-    .upsert(freshPersonnel().map(toPersonnelRow), { onConflict: "id" });
+  const [{ data: existingPersonnel, error: personnelLookupErr }, { data: existingWorkers, error: workersLookupErr }] = await Promise.all([
+    supabase.from("personnel").select("id"),
+    supabase.from("employees").select("id"),
+  ]);
+  if (personnelLookupErr) throw new Error(`Supabase seed lookup (personnel): ${personnelLookupErr.message}`);
+  if (workersLookupErr) throw new Error(`Supabase seed lookup (workers): ${workersLookupErr.message}`);
+
+  // Seeding must never overwrite a real check-in. Insert only the configured
+  // accounts that are absent; all attendance, GPS, photo and duty fields on
+  // existing records remain untouched on every later request.
+  const knownPersonnel = new Set((existingPersonnel || []).map((person) => person.id));
+  const missingPersonnel = freshPersonnel().filter((person) => !knownPersonnel.has(person.id));
+  const { error: personnelErr } = missingPersonnel.length
+    ? await supabase.from("personnel").insert(missingPersonnel.map(toPersonnelRow))
+    : { error: null };
   if (personnelErr) throw new Error(`Supabase seed (personnel): ${personnelErr.message}`);
 
-  const { error: employeesErr } = await supabase
-    .from("employees")
-    .upsert(freshWorkers().map(toEmployeeRow), { onConflict: "id" });
+  const knownWorkers = new Set((existingWorkers || []).map((worker) => worker.id));
+  const missingWorkers = freshWorkers().filter((worker) => !knownWorkers.has(worker.id));
+  const { error: employeesErr } = missingWorkers.length
+    ? await supabase.from("employees").insert(missingWorkers.map(toEmployeeRow))
+    : { error: null };
   if (employeesErr) throw new Error(`Supabase seed (workers): ${employeesErr.message}`);
 
   const { error: metaErr } = await supabase.from("meta").upsert({ key: "seeded", value: true });
