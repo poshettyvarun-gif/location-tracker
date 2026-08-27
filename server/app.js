@@ -31,6 +31,12 @@ import {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "6mb" }));
+// Duty, camera, and GPS data must always be read live. A cached monitor
+// response can otherwise show an old "Off duty" state after a worker checks in.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  next();
+});
 
 const MAX_CONSTABLES_PER_INSPECTOR = 10;
 

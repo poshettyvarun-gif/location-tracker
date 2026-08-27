@@ -80,6 +80,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(path, {
     ...options,
+    cache: "no-store",
     headers: {
       ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
