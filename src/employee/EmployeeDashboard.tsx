@@ -325,7 +325,7 @@ export default function EmployeeDashboard() {
           </div>
           <div className="min-w-0">
             <p className="truncate font-display text-sm font-semibold text-card-foreground">{emp.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{emp.code} · {emp.username}</p>
+            <p className="truncate text-xs text-muted-foreground">{emp.designation || "Field worker"} · {emp.phone}</p>
           </div>
         </div>
         <button
@@ -341,7 +341,7 @@ export default function EmployeeDashboard() {
       <main className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-8">
         <section className="mb-6 rounded-2xl border border-border bg-card px-5 py-4 shadow-soft">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-azure">Signed in as</p>
-          <h1 className="mt-1 font-display text-2xl font-semibold text-foreground">Constable / Employee</h1>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-foreground">{emp.designation || "Field worker"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{emp.name} · Today’s Employee Dashboard</p>
         </section>
         {logoutBlocked && (

@@ -1,415 +1,68 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { toast } from "sonner";
+import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, MapPin, Radio } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { AlertTriangle, ArrowLeft, MapPin, Power, Radio, Trash2 } from "lucide-react";
-import { apiFetch, useAuth, hasFullAccess, isReadOnly } from "../auth/AuthContext";
-import type { EmployeeUser, PersonnelUser } from "../auth/AuthContext";
-
-const SHIFT_OPTIONS = [
-  { value: "", label: "Unassigned" },
-  { value: "morning", label: "Morning (06:00–14:00)" },
-  { value: "afternoon", label: "Afternoon (14:00–22:00)" },
-  { value: "night", label: "Night (22:00–06:00)" },
-];
+import { apiFetch } from "../auth/AuthContext";
+import type { EmployeeUser } from "../auth/AuthContext";
 
 const POLL_MS = 5000;
 
 export default function AdminEmployeeDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const readOnly = isReadOnly(user?.role ?? "");
-  const canAssignInspector = hasFullAccess(user?.role ?? "");
-  const [emp, setEmp] = useState<EmployeeUser | null>(null);
+  const [employee, setEmployee] = useState<EmployeeUser | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [place, setPlace] = useState("");
-  const [savingPlace, setSavingPlace] = useState(false);
-  const [savingShift, setSavingShift] = useState(false);
-  const [savingInspector, setSavingInspector] = useState(false);
-  const [inspectors, setInspectors] = useState<PersonnelUser[]>([]);
-  const [confirmName, setConfirmName] = useState("");
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const data = await apiFetch(`/api/admin/employees/${id}`);
-        if (cancelled) return;
-        setEmp(data);
-        setPlace((prev) => (document.activeElement?.id === "place-input" ? prev : data.assignedPlace ?? ""));
-      } catch (err) {
-        if (cancelled) return;
-        // A 404 here means this employee doesn't exist, or (for an
-        // Inspector) belongs to someone else — the API scopes the lookup
-        // rather than exposing a 403 that would leak the record's existence.
-        if (err instanceof Error && err.message.toLowerCase().includes("not found")) {
-          setNotFound(true);
-        }
+        if (!cancelled) setEmployee(data);
+      } catch (error) {
+        if (!cancelled && error instanceof Error && error.message.toLowerCase().includes("not found")) setNotFound(true);
       }
     };
-    load();
-    const timer = setInterval(load, POLL_MS);
+    void load();
+    const timer = window.setInterval(load, POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      window.clearInterval(timer);
     };
   }, [id]);
 
-  useEffect(() => {
-    if (!canAssignInspector) return;
-    apiFetch("/api/admin/personnel")
-      .then((people: PersonnelUser[]) => setInspectors(people.filter((person) => person.role === "inspector")))
-      .catch(() => {
-        /* The employee detail screen remains usable if the directory is temporarily unavailable. */
-      });
-  }, [canAssignInspector]);
+  if (notFound) return <EmptyState message="This worker record was not found." />;
+  if (!employee) return <div className="p-10 text-sm text-muted-foreground">Loading worker details…</div>;
 
-  async function savePlace() {
-    setSavingPlace(true);
-    try {
-      const data = await apiFetch(`/api/admin/employees/${id}/assign-place`, {
-        method: "POST",
-        body: JSON.stringify({ place: place.trim() || null }),
-      });
-      setEmp(data);
-      toast.success("Location assigned");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to assign location");
-    } finally {
-      setSavingPlace(false);
-    }
-  }
-
-  async function setShift(shiftSlot: string) {
-    setSavingShift(true);
-    try {
-      const data = await apiFetch(`/api/admin/employees/${id}/assign-shift`, {
-        method: "POST",
-        body: JSON.stringify({ shiftSlot: shiftSlot || null }),
-      });
-      setEmp(data);
-      toast.success("Shift updated");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update shift");
-    } finally {
-      setSavingShift(false);
-    }
-  }
-
-  async function setInspector(inspectorId: string) {
-    setSavingInspector(true);
-    try {
-      const data = await apiFetch(`/api/admin/employees/${id}/assign-inspector`, {
-        method: "POST",
-        body: JSON.stringify({ inspectorId: inspectorId || null }),
-      });
-      setEmp(data);
-      toast.success("Inspector assignment updated");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update Inspector assignment");
-    } finally {
-      setSavingInspector(false);
-    }
-  }
-
-  async function forceEndShift() {
-    if (!emp) return;
-    if (!confirm(`End ${emp.name}'s shift now? Use this only for emergencies — it bypasses the handover rule.`)) return;
-    try {
-      const data = await apiFetch(`/api/admin/employees/${id}/force-end-shift`, { method: "POST" });
-      setEmp(data);
-      toast.success("Shift ended");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to end shift");
-    }
-  }
-
-  async function clearStatus() {
-    if (!emp) return;
-    if (!confirm(`Clear ${emp.name}'s last check-in and location history? This deletes their check-in photo and can't be undone.`)) return;
-    try {
-      const data = await apiFetch(`/api/admin/employees/${id}/clear-status`, { method: "POST" });
-      setEmp(data);
-      toast.success("Check-in and location history cleared");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to clear history");
-    }
-  }
-
-  async function deleteEmployee() {
-    if (!emp || confirmName.trim() !== emp.name) return;
-    setDeleting(true);
-    try {
-      await apiFetch(`/api/admin/employees/${id}`, { method: "DELETE" });
-      toast.success(`${emp.name} deleted permanently`);
-      navigate("/admin", { replace: true });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete employee");
-      setDeleting(false);
-    }
-  }
-
-  if (notFound) {
-    return (
-      <div className="p-10 text-center">
-        <p className="text-sm text-muted-foreground">
-          This employee doesn't exist, or isn't assigned to you.
-        </p>
-        <Link to="/admin" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-azure hover:underline">
-          <ArrowLeft className="h-4 w-4" />
-          Back to employees
-        </Link>
-      </div>
-    );
-  }
-
-  if (!emp) {
-    return <div className="p-10 text-sm text-muted-foreground">Loading…</div>;
-  }
-
-  const loc = emp.lastLocation;
-  const staleMs = loc ? Date.now() - loc.at : null;
-  const isLive = staleMs !== null && staleMs < 30000;
+  const location = employee.lastLocation;
+  const isLive = Boolean(location && Date.now() - location.at < 30_000);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">
-      <Link to="/admin" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" />
-        Back to employees
-      </Link>
-
+      <Link to="/admin" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to monitoring</Link>
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          {emp.profilePhotoUrl ? (
-            <img src={emp.profilePhotoUrl} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" />
-          ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-azure/15 text-lg font-semibold text-azure">
-              {emp.name
-                .split(" ")
-                .map((p) => p[0])
-                .slice(0, 2)
-                .join("")
-                .toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0">
-            <h1 className="break-words font-display text-xl font-semibold text-foreground sm:text-2xl">{emp.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {emp.code} · {emp.username}
-              {emp.designation ? ` · ${emp.designation}` : ""}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Inspector: {emp.inspectorName || "Unassigned"}
-            </p>
-          </div>
+          {employee.profilePhotoUrl ? <img src={employee.profilePhotoUrl} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" /> : <div className="flex h-14 w-14 items-center justify-center rounded-full bg-azure/15 text-lg font-semibold text-azure">{employee.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div>}
+          <div className="min-w-0"><h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">{employee.name}</h1><p className="text-sm text-muted-foreground">{employee.designation || "Field worker"} · {employee.phone}</p><p className="text-xs text-muted-foreground">{employee.code}</p></div>
         </div>
-        <span
-          className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
-            emp.onDuty ? "bg-[#3f8f5f]/15 text-[#265c3b]" : "bg-muted text-muted-foreground"
-          }`}
-        >
-          {emp.onDuty ? "On duty" : "Off duty"}
-        </span>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${employee.onDuty ? "bg-[#3f8f5f]/15 text-[#265c3b]" : "bg-muted text-muted-foreground"}`}>{employee.onDuty ? "On duty" : "Off duty"}</span>
       </header>
 
+      <p className="mb-6 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">Monitoring only — worker accounts and check-in records cannot be edited or deleted from this dashboard.</p>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {canAssignInspector && (
-          <section className="rounded-2xl border border-border bg-card p-5 shadow-soft lg:col-span-2">
-            <h2 className="mb-3 font-display text-sm font-semibold text-card-foreground">Inspector assignment</h2>
-            <select
-              value={emp.inspectorId ?? ""}
-              onChange={(e) => setInspector(e.target.value)}
-              disabled={savingInspector}
-              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
-            >
-              <option value="">Unassigned</option>
-              {inspectors.map((inspector) => (
-                <option key={inspector.id} value={inspector.id}>{inspector.name}</option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-muted-foreground">Each Inspector can manage up to 10 constables.</p>
-          </section>
-        )}
         <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
-          <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-card-foreground">
-            <Radio className={`h-4 w-4 ${isLive ? "text-[#3f8f5f]" : "text-muted-foreground"}`} />
-            Live location
-          </h2>
-          {loc ? (
-            <>
-              <div className="mb-3 h-56 overflow-hidden rounded-xl">
-                <MapContainer center={[loc.lat, loc.lng]} zoom={16} className="h-full w-full">
-                  <TileLayer
-                    attribution='&copy; OpenStreetMap contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                  {loc.accuracy && (
-                    <Circle
-                      center={[loc.lat, loc.lng]}
-                      radius={loc.accuracy}
-                      pathOptions={{ color: "#3f8f5f", fillColor: "#3f8f5f", fillOpacity: 0.12, weight: 1 }}
-                    />
-                  )}
-                  <Marker position={[loc.lat, loc.lng]}>
-                    <Popup>{emp.name}</Popup>
-                  </Marker>
-                </MapContainer>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
-                {loc.accuracy ? ` (±${Math.round(loc.accuracy)}m)` : ""} —{" "}
-                {isLive ? "updated moments ago" : `last updated ${new Date(loc.at).toLocaleTimeString()}`}
-              </p>
-              {loc.accuracy != null && loc.accuracy > 100 && (
-                <p className="mt-1 text-xs text-gold">
-                  Low-precision fix — this device is likely reporting Wi-Fi/IP-based location
-                  rather than GPS. Accuracy improves outdoors or on a phone with GPS enabled.
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">No location reported yet.</p>
-          )}
+          <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold"><Radio className={`h-4 w-4 ${isLive ? "text-[#3f8f5f]" : "text-muted-foreground"}`} />Live location</h2>
+          {location ? <><div className="h-56 overflow-hidden rounded-xl"><MapContainer center={[location.lat, location.lng]} zoom={16} className="h-full w-full"><TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />{location.accuracy && <Circle center={[location.lat, location.lng]} radius={location.accuracy} pathOptions={{ color: "#3f8f5f", fillColor: "#3f8f5f", fillOpacity: 0.12, weight: 1 }} />}<Marker position={[location.lat, location.lng]}><Popup>{employee.name}</Popup></Marker></MapContainer></div><p className="mt-3 text-sm text-muted-foreground">{location.lat.toFixed(5)}, {location.lng.toFixed(5)}{location.accuracy ? ` (±${Math.round(location.accuracy)}m)` : ""}</p><p className="text-xs text-muted-foreground">{isLive ? "Live now" : `Last updated ${new Date(location.at).toLocaleString()}`}</p></> : <p className="text-sm text-muted-foreground">No GPS location has been shared yet.</p>}
         </section>
-
-        <div className="space-y-6">
-          <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
-            <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-card-foreground">
-              <MapPin className="h-4 w-4 text-azure" />
-              Assigned location
-            </h2>
-            {readOnly ? (
-              <p className="text-sm text-foreground">{emp.assignedPlace || "Not assigned yet."}</p>
-            ) : (
-              <>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Tell {emp.name.split(" ")[0]} where to go over radio, then record it here.
-                </p>
-                <textarea
-                  id="place-input"
-                  value={place}
-                  onChange={(e) => setPlace(e.target.value)}
-                  rows={2}
-                  className="mb-3 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
-                  placeholder="e.g. MG Road Junction, Zone A"
-                />
-                <button
-                  onClick={savePlace}
-                  disabled={savingPlace}
-                  className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-                >
-                  {savingPlace ? "Saving…" : "Save location"}
-                </button>
-              </>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-border bg-card p-5 shadow-soft">
-            <h2 className="mb-3 font-display text-sm font-semibold text-card-foreground">Shift</h2>
-            {readOnly ? (
-              <p className="text-sm text-foreground">
-                {SHIFT_OPTIONS.find((o) => o.value === (emp.shiftSlot ?? ""))?.label ?? "Unassigned"}
-              </p>
-            ) : (
-              <>
-                <select
-                  value={emp.shiftSlot ?? ""}
-                  onChange={(e) => setShift(e.target.value)}
-                  disabled={savingShift}
-                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground"
-                >
-                  {SHIFT_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-
-                {emp.onDuty && (
-                  <button
-                    onClick={forceEndShift}
-                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
-                  >
-                    <Power className="h-4 w-4" />
-                    Force end shift (emergency override)
-                  </button>
-                )}
-              </>
-            )}
-          </section>
-        </div>
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-soft"><h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold"><MapPin className="h-4 w-4 text-azure" />Assigned location</h2><p className="text-sm text-muted-foreground">{employee.assignedPlace || "No assigned location."}</p><h2 className="mb-2 mt-6 font-display text-sm font-semibold">Shift</h2><p className="text-sm text-muted-foreground">{employee.shiftSlot || "Not assigned"}</p></section>
       </div>
 
-      <section className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-soft">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-sm font-semibold text-card-foreground">Last check-in</h2>
-          {!readOnly && (emp.lastCheckIn || emp.lastLocation) && (
-            <button
-              onClick={clearStatus}
-              className="flex items-center gap-1.5 text-xs font-medium text-destructive hover:underline"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear history
-            </button>
-          )}
-        </div>
-        {emp.lastCheckIn ? (
-          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-            <img src={emp.lastCheckIn.photoUrl} alt="" className="h-24 w-24 shrink-0 rounded-xl object-cover" />
-            <div className="text-sm text-muted-foreground">
-              <p>{new Date(emp.lastCheckIn.at).toLocaleString()}</p>
-              {emp.lastCheckIn.locationVerified && emp.lastCheckIn.lat != null && emp.lastCheckIn.lng != null ? (
-                <p>
-                  {emp.lastCheckIn.lat.toFixed(5)}, {emp.lastCheckIn.lng.toFixed(5)}
-                  {emp.lastCheckIn.accuracy ? ` (±${Math.round(emp.lastCheckIn.accuracy)}m)` : ""}
-                </p>
-              ) : (
-                <div className="mt-1 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
-                  <p className="font-semibold">⚠ Location unverified</p>
-                  <p className="mt-0.5">
-                    {emp.lastCheckIn.locationError ?? "No location was captured for this check-in."}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No check-in submitted yet.</p>
-        )}
-      </section>
-
-      {!readOnly && (
-        <section className="mt-6 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
-          <h2 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-destructive">
-            <AlertTriangle className="h-4 w-4" />
-            Danger zone
-          </h2>
-          <p className="mb-4 text-xs text-muted-foreground">
-            Permanently deletes {emp.name}'s account, login, and check-in photo. Unlike "Clear
-            history" above, this can't be undone and the record will not come back on its own —
-            type their name to confirm.
-          </p>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <input
-              value={confirmName}
-              onChange={(e) => setConfirmName(e.target.value)}
-              placeholder={`Type "${emp.name}" to confirm`}
-              className="w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground sm:flex-1"
-            />
-            <button
-              onClick={deleteEmployee}
-              disabled={confirmName.trim() !== emp.name || deleting}
-              className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-            >
-              <Trash2 className="h-4 w-4" />
-              {deleting ? "Deleting…" : "Delete employee permanently"}
-            </button>
-          </div>
-        </section>
-      )}
+      <section className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-soft"><h2 className="mb-3 font-display text-sm font-semibold">Latest camera check-in</h2>{employee.lastCheckIn ? <div className="flex flex-col gap-4 sm:flex-row sm:items-center"><img src={employee.lastCheckIn.photoUrl} alt="Latest check-in" className="h-28 w-28 rounded-xl object-cover" /><div className="text-sm text-muted-foreground"><p>{new Date(employee.lastCheckIn.at).toLocaleString()}</p>{employee.lastCheckIn.locationVerified && employee.lastCheckIn.lat != null && employee.lastCheckIn.lng != null ? <p>{employee.lastCheckIn.lat.toFixed(5)}, {employee.lastCheckIn.lng.toFixed(5)}</p> : <p className="text-destructive">Location unverified</p>}</div></div> : <p className="text-sm text-muted-foreground">No check-in submitted yet.</p>}</section>
     </div>
   );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return <div className="p-10 text-center"><p className="text-sm text-muted-foreground">{message}</p><Link to="/admin" className="mt-3 inline-flex text-sm font-medium text-azure hover:underline">Back to monitoring</Link></div>;
 }

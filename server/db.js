@@ -58,8 +58,7 @@ export function nextSlot(slot) {
   return i === -1 ? null : SHIFT_SLOTS[(i + 1) % SHIFT_SLOTS.length];
 }
 
-/** The rank hierarchy. CP/DCP are fixed (exactly one each, seeded, never created/deleted
- * through the app). ACP and Inspector are created through the app by CP/DCP. */
+/** CP and DCP are the only monitor accounts. Everyone else is a field worker. */
 export const CREATABLE_RANKS = ["inspector", "si", "ci"];
 export const FIXED_RANKS = ["cp", "dcp", "acp"];
 export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
@@ -67,23 +66,17 @@ export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
-/**
- * Exactly two fixed personnel accounts, seeded once: one CP, one DCP. Reuses
- * the same ADMIN_USERNAME/ADMIN_PASSWORD and ADMIN2_USERNAME/ADMIN2_PASSWORD
- * env var names the app already had, so no new Vercel configuration is
- * needed for this to keep working. ACP and Inspector accounts are never
- * seeded — CP/DCP create them through the app (see createPersonnel below).
- */
 const SEED_PERSONNEL = [
-  { id: "cp-1", rank: "cp", name: "Commissioner of Police", usernameEnv: "ADMIN_USERNAME", usernameFallback: "admin", passwordEnv: "ADMIN_PASSWORD", passwordFallback: "Admin#2026" },
-  { id: "dcp-1", rank: "dcp", name: "Deputy Commissioner of Police", usernameEnv: "ADMIN2_USERNAME", usernameFallback: "admin2", passwordEnv: "ADMIN2_PASSWORD", passwordFallback: "Admin2#2026" },
-  { id: "dcp-2", rank: "dcp", name: "Deputy Commissioner of Police Two", usernameEnv: "DCP2_USERNAME", usernameFallback: "dcp2", passwordEnv: "DCP2_PASSWORD", passwordFallback: "Dcp2#2026" },
-  { id: "dcp-3", rank: "dcp", name: "Deputy Commissioner of Police Three", usernameEnv: "DCP3_USERNAME", usernameFallback: "dcp3", passwordEnv: "DCP3_PASSWORD", passwordFallback: "Dcp3#2026" },
-  { id: "acp-1", rank: "acp", name: "Assistant Commissioner of Police One", usernameEnv: "ACP1_USERNAME", usernameFallback: "acp1", passwordEnv: "ACP1_PASSWORD", passwordFallback: "Acp1#2026" },
-  { id: "acp-2", rank: "acp", name: "Assistant Commissioner of Police Two", usernameEnv: "ACP2_USERNAME", usernameFallback: "acp2", passwordEnv: "ACP2_PASSWORD", passwordFallback: "Acp2#2026" },
-  { id: "acp-3", rank: "acp", name: "Assistant Commissioner of Police Three", usernameEnv: "ACP3_USERNAME", usernameFallback: "acp3", passwordEnv: "ACP3_PASSWORD", passwordFallback: "Acp3#2026" },
-  { id: "acp-4", rank: "acp", name: "Assistant Commissioner of Police Four", usernameEnv: "ACP4_USERNAME", usernameFallback: "acp4", passwordEnv: "ACP4_PASSWORD", passwordFallback: "Acp4#2026" },
-  { id: "acp-5", rank: "acp", name: "Assistant Commissioner of Police Five", usernameEnv: "ACP5_USERNAME", usernameFallback: "acp5", passwordEnv: "ACP5_PASSWORD", passwordFallback: "Acp5#2026" },
+  { id: "cp-1", rank: "cp", name: "Commissioner of Police", phone: "9704761116" },
+  { id: "dcp-1", rank: "dcp", name: "Deputy Commissioner of Police", phone: "8523008555" },
+];
+
+const SEED_WORKERS = [
+  { id: "worker-acp-1", code: "ACP-01", name: "Assistant Commissioner of Police", designation: "Assistant Commissioner of Police", phone: "8008699722" },
+  { id: "worker-inspector-1", code: "INS-01", name: "Police Inspector", designation: "Police Inspector", phone: "7659028605" },
+  { id: "worker-constable-1", code: "PC-01", name: "Police Constable", designation: "Constable", phone: "7793966921" },
+  { id: "worker-si-1", code: "SI-01", name: "Sub-Inspector", designation: "Sub-Inspector", phone: "8688653742" },
+  { id: "worker-ci-1", code: "CI-01", name: "Circle Inspector", designation: "Circle Inspector", phone: "9392822792" },
 ];
 
 function freshPersonnel() {
@@ -91,9 +84,29 @@ function freshPersonnel() {
     id: p.id,
     code: p.rank.toUpperCase(),
     name: p.name,
-    username: process.env[p.usernameEnv] || p.usernameFallback,
-    passwordHash: bcrypt.hashSync(process.env[p.passwordEnv] || p.passwordFallback, 10),
+    phone: p.phone,
+    // Retained only because the legacy database schema still requires these
+    // columns. They are never accepted for authentication.
+    username: `phone-${p.phone}`,
+    passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
     role: p.rank,
+  }));
+}
+
+function freshWorkers() {
+  return SEED_WORKERS.map((worker) => ({
+    ...worker,
+    phone: worker.phone,
+    username: `phone-${worker.phone}`,
+    passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
+    role: "employee",
+    profilePhotoId: null,
+    inspectorId: null,
+    shiftSlot: null,
+    assignedPlace: null,
+    onDuty: false,
+    lastLocation: null,
+    lastCheckIn: null,
   }));
 }
 
@@ -143,6 +156,7 @@ function fromEmployeeRow(row) {
     code: row.code,
     name: row.name,
     username: row.username,
+    phone: row.phone,
     passwordHash: row.password_hash,
     role: "employee",
     designation: row.designation,
@@ -162,6 +176,7 @@ function fromPersonnelRow(row) {
     code: row.code,
     name: row.name,
     username: row.username,
+    phone: row.phone,
     passwordHash: row.password_hash,
     role: row.rank,
     supervisorInspectorId: row.supervisor_inspector_id,
@@ -188,6 +203,7 @@ const mem = {
 function memSeed() {
   if (mem.seeded) return;
   for (const p of freshPersonnel()) mem.personnel.set(p.id, p);
+  for (const worker of freshWorkers()) mem.employees.set(worker.id, worker);
   mem.seeded = true;
 }
 
@@ -199,15 +215,15 @@ function memSeed() {
 let seeding = null;
 
 async function seedSupabase() {
-  const { data: existing, error: existingErr } = await supabase.from("personnel").select("id, username");
-  if (existingErr) throw new Error(`Supabase seed lookup: ${existingErr.message}`);
-  const presentIds = new Set((existing || []).map((person) => person.id));
-  const presentUsernames = new Set((existing || []).map((person) => person.username));
-  // A prior manually-created command account may use the same username with a
-  // different id. Keep it intact rather than failing every sign-in seed.
-  const missing = freshPersonnel().filter((person) => !presentIds.has(person.id) && !presentUsernames.has(person.username));
-  const { error: personnelErr } = missing.length ? await supabase.from("personnel").insert(missing.map(toPersonnelRow)) : { error: null };
+  const { error: personnelErr } = await supabase
+    .from("personnel")
+    .upsert(freshPersonnel().map(toPersonnelRow), { onConflict: "id" });
   if (personnelErr) throw new Error(`Supabase seed (personnel): ${personnelErr.message}`);
+
+  const { error: employeesErr } = await supabase
+    .from("employees")
+    .upsert(freshWorkers().map(toEmployeeRow), { onConflict: "id" });
+  if (employeesErr) throw new Error(`Supabase seed (workers): ${employeesErr.message}`);
 
   const { error: metaErr } = await supabase.from("meta").upsert({ key: "seeded", value: true });
   if (metaErr) throw new Error(`Supabase seed (meta): ${metaErr.message}`);
@@ -223,17 +239,17 @@ export async function ensureSeeded() {
 // Users (personnel + employees share the login/session flow)
 // ---------------------------------------------------------------------------
 
-export async function findUserByUsername(username) {
+export async function findUserByPhone(phone) {
   await ensureSeeded();
   if (!isSupabaseConfigured) {
-    const person = [...mem.personnel.values()].find((p) => p.username === username);
+    const person = [...mem.personnel.values()].find((p) => p.phone === phone);
     if (person) return person;
-    return [...mem.employees.values()].find((e) => e.username === username) || null;
+    return [...mem.employees.values()].find((e) => e.phone === phone) || null;
   }
 
-  const { data: person } = await supabase.from("personnel").select("*").eq("username", username).maybeSingle();
+  const { data: person } = await supabase.from("personnel").select("*").eq("phone", phone).maybeSingle();
   if (person) return fromPersonnelRow(person);
-  const { data: emp } = await supabase.from("employees").select("*").eq("username", username).maybeSingle();
+  const { data: emp } = await supabase.from("employees").select("*").eq("phone", phone).maybeSingle();
   return emp ? fromEmployeeRow(emp) : null;
 }
 

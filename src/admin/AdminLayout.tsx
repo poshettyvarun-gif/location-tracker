@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { ClipboardList, LayoutDashboard, LogOut, MapPinned, Menu, Shield, Users, X } from "lucide-react";
+import { ClipboardList, LayoutDashboard, LogOut, MapPinned, Menu, Shield, X } from "lucide-react";
 import { useAuth, RANK_LABEL, type PersonnelRank } from "../auth/AuthContext";
 
 const NAV_LINK_CLASS = ({ isActive }: { isActive: boolean }) =>
@@ -25,38 +25,10 @@ const DASHBOARD_SHELL: Record<PersonnelRank, { title: string; subtitle: string; 
     map: "Situation Map",
     brand: "bg-[#0b3158]",
   },
-  acp: {
-    title: "ACP Operations Briefing",
-    subtitle: "Read-only operational visibility",
-    employees: "Operational Briefing",
-    personnel: "Personnel Directory",
-    map: "Live Operations Map",
-    brand: "bg-[#27364a]",
-  },
-  si: {
-    title: "Sub-Inspector Monitoring Desk",
-    subtitle: "Read-only constable monitoring",
-    employees: "Constable Updates",
-    personnel: "Personnel Directory",
-    map: "Live Updates Map",
-    brand: "bg-[#304050]",
-  },
-  ci: {
-    title: "Circle Inspector Monitoring Desk",
-    subtitle: "Read-only constable monitoring",
-    employees: "Constable Updates",
-    personnel: "Personnel Directory",
-    map: "Live Updates Map",
-    brand: "bg-[#3a344f]",
-  },
-  inspector: {
-    title: "Inspector Field Desk",
-    subtitle: "Your assigned constables",
-    employees: "My Constables",
-    personnel: "",
-    map: "My Patrol Map",
-    brand: "bg-[#123d35]",
-  },
+  acp: { title: "Field Check-in", subtitle: "Camera and GPS check-in", employees: "", personnel: "", map: "", brand: "bg-[#27364a]" },
+  si: { title: "Field Check-in", subtitle: "Camera and GPS check-in", employees: "", personnel: "", map: "", brand: "bg-[#27364a]" },
+  ci: { title: "Field Check-in", subtitle: "Camera and GPS check-in", employees: "", personnel: "", map: "", brand: "bg-[#27364a]" },
+  inspector: { title: "Field Check-in", subtitle: "Camera and GPS check-in", employees: "", personnel: "", map: "", brand: "bg-[#27364a]" },
 };
 
 export default function AdminLayout() {
@@ -74,9 +46,6 @@ export default function AdminLayout() {
   const rank = user && user.role !== "employee" ? (user.role as PersonnelRank) : null;
   const rankLabel = rank ? RANK_LABEL[rank] : "";
   const shell = rank ? DASHBOARD_SHELL[rank] : DASHBOARD_SHELL.cp;
-  // Inspectors only ever see their own constables — the personnel directory
-  // (the org chart itself) is invisible to them, same as the API enforces.
-  const showPersonnelLink = !["si", "ci"].includes(rank ?? "");
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -129,12 +98,6 @@ export default function AdminLayout() {
             <LayoutDashboard className="h-4 w-4 shrink-0" />
             {shell.employees}
           </NavLink>
-          {showPersonnelLink && (
-            <NavLink to="/admin/personnel" className={NAV_LINK_CLASS}>
-              <Users className="h-4 w-4 shrink-0" />
-              {shell.personnel}
-            </NavLink>
-          )}
           <NavLink to="/admin/attendance" className={NAV_LINK_CLASS}>
             <ClipboardList className="h-4 w-4 shrink-0" />
             Attendance report

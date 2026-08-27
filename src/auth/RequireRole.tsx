@@ -3,9 +3,8 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
 /**
- * "admin" area now covers 4 distinct ranks (CP/DCP/ACP/Inspector) with
- * different permissions enforced by the API — this gate only decides which
- * shell (admin dashboard vs employee check-in) a signed-in user lands in.
+ * CP/DCP use the monitor console. Every field officer uses the employee
+ * check-in screen, regardless of their designation.
  */
 export default function RequireRole({
   area,

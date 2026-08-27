@@ -5,7 +5,6 @@ import RequireRole from "./auth/RequireRole";
 import LoginPage from "./auth/LoginPage";
 import AdminLayout from "./admin/AdminLayout";
 import AdminOverview from "./admin/AdminOverview";
-import AdminPersonnel from "./admin/AdminPersonnel";
 import AdminEmployeeDetail from "./admin/AdminEmployeeDetail";
 import AdminLiveMap from "./admin/AdminLiveMap";
 import AdminAttendanceReport from "./admin/AdminAttendanceReport";
@@ -35,7 +34,6 @@ export default function App() {
             }
           >
             <Route index element={<AdminOverview />} />
-            <Route path="personnel" element={<AdminPersonnel />} />
             <Route path="map" element={<AdminLiveMap />} />
             <Route path="attendance" element={<AdminAttendanceReport />} />
             <Route path="employees/:id" element={<AdminEmployeeDetail />} />

@@ -24,7 +24,7 @@ export interface EmployeeUser {
   id: string;
   code: string;
   name: string;
-  username: string;
+  phone: string;
   role: "employee";
   designation: string | null;
   profilePhotoUrl: string | null;
@@ -54,7 +54,7 @@ export interface PersonnelUser {
   id: string;
   code: string;
   name: string;
-  username: string;
+  phone: string;
   role: PersonnelRank;
   /** Only present on the personnel directory list, Inspector rows only. */
   constableCount?: number;
@@ -67,7 +67,7 @@ interface AuthState {
   user: CurrentUser | null;
   token: string | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<CurrentUser>;
+  login: (phone: string) => Promise<CurrentUser>;
   logout: () => Promise<void>;
   returnToLogin: () => void;
   refresh: () => Promise<void>;
@@ -125,10 +125,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function login(username: string, password: string) {
+  async function login(phone: string) {
     const data = await apiFetch("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ phone }),
     });
     localStorage.setItem(TOKEN_KEY, data.token);
     setToken(data.token);

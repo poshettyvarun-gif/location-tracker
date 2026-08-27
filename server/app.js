@@ -2,9 +2,8 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import crypto from "node:crypto";
-import bcrypt from "bcryptjs";
 import {
-  findUserByUsername,
+  findUserByPhone,
   findUserById,
   createSession,
   listSessionsForAttendance,
@@ -26,7 +25,6 @@ import {
   loadPhotoBuffer,
   deletePhoto,
   SHIFT_SLOTS,
-  isShiftActive,
   currentShiftEndsAt,
   CREATABLE_RANKS,
 } from "./db.js";
@@ -45,7 +43,7 @@ const upload = multer({
 });
 
 function publicPersonnel(p, extra = {}) {
-  return { id: p.id, code: p.code, name: p.name, username: p.username, role: p.role, ...extra };
+  return { id: p.id, code: p.code, name: p.name, phone: p.phone, role: p.role, ...extra };
 }
 
 function publicEmployee(e, extra = {}) {
@@ -53,7 +51,7 @@ function publicEmployee(e, extra = {}) {
     id: e.id,
     code: e.code,
     name: e.name,
-    username: e.username,
+    phone: e.phone,
     role: e.role,
     designation: e.designation ?? null,
     profilePhotoUrl: e.profilePhotoId ? `/api/photos/${e.profilePhotoId}` : null,
@@ -90,24 +88,15 @@ function requireEmployee(req, res, next) {
   next();
 }
 
-/** CP, DCP, ACP, or Inspector — i.e. anyone who isn't a constable. */
+/** The two command officers are monitors; field officers use the check-in screen. */
 function requireAdminArea(req, res, next) {
-  if (req.user.role === "employee") return res.status(403).json({ error: "Not authorized" });
+  if (!["cp", "dcp"].includes(req.user.role)) return res.status(403).json({ error: "Monitoring is restricted to CP and DCP" });
   next();
 }
 
-/** CP/DCP only — full read/write across the whole force. */
-function requireFullAccess(req, res, next) {
-  if (req.user.role !== "cp" && req.user.role !== "dcp") {
-    return res.status(403).json({ error: "Restricted to CP/DCP" });
-  }
-  next();
-}
-
-/** Blocks ACP from any route that changes data. ACP sees everything, changes nothing. */
-function requireNotReadOnly(req, res, next) {
-  if (["si", "ci"].includes(req.user.role)) return res.status(403).json({ error: "This role has read-only access" });
-  next();
+/** This deployment is monitor-only: staff records are not managed in the app. */
+function requireNotReadOnly(req, res, _next) {
+  return res.status(403).json({ error: "Staff records are managed outside this dashboard" });
 }
 
 /** The personnel directory itself is invisible to Inspectors — they only ever see their own constables. */
@@ -150,14 +139,13 @@ function reportRange(period, date) {
 app.post(
   "/api/auth/login",
   wrap(async (req, res) => {
-    const { username, password } = req.body || {};
-    const user = username ? await findUserByUsername(username) : null;
-    if (!user || !bcrypt.compareSync(password || "", user.passwordHash)) {
-      return res.status(401).json({ error: "Invalid username or password" });
+    const phone = String(req.body?.phone || "").replace(/\D/g, "");
+    if (!/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ error: "Enter a valid 10-digit mobile number" });
     }
-
-    if (user.role === "employee" && user.shiftSlot && !isShiftActive(user.shiftSlot)) {
-      return res.status(403).json({ error: "You can only sign in during your assigned shift." });
+    const user = await findUserByPhone(phone);
+    if (!user) {
+      return res.status(401).json({ error: "This mobile number is not registered" });
     }
 
     // Employee sessions end exactly when their active shift ends. Unassigned
@@ -338,6 +326,7 @@ app.post(
   "/api/admin/personnel",
   auth,
   requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
     const { name, username, password, rank } = req.body || {};
     if (!name?.trim() || !username?.trim() || !password) {
@@ -363,6 +352,7 @@ app.delete(
   "/api/admin/personnel/:id",
   auth,
   requireAdminArea,
+  requireNotReadOnly,
   wrap(async (req, res) => {
     const person = await getPersonnel(req.params.id);
     if (!person) return res.status(404).json({ error: "Not found" });
@@ -472,7 +462,7 @@ app.get(
 app.post(
   "/api/admin/employees/:id/assign-inspector",
   auth,
-  requireFullAccess,
+  requireNotReadOnly,
   wrap(async (req, res) => {
     const existing = await getEmployee(req.params.id);
     if (!existing) return res.status(404).json({ error: "Not found" });

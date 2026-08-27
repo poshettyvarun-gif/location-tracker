@@ -6,8 +6,7 @@ import { useAuth } from "./AuthContext";
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -16,7 +15,7 @@ export default function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      const user = await login(username.trim(), password);
+      const user = await login(phone.replace(/\D/g, ""));
       navigate(user.role === "employee" ? "/employee" : "/admin", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -38,28 +37,19 @@ export default function LoginPage() {
           <h1 className="font-display text-lg font-semibold text-card-foreground">
             Command Dashboard
           </h1>
-          <p className="text-xs text-muted-foreground">Sign in to continue</p>
+          <p className="text-xs text-muted-foreground">Enter your registered mobile number</p>
         </div>
 
         <label className="mb-3 block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">Username</span>
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">Mobile number</span>
           <input
             autoFocus
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            inputMode="numeric"
+            maxLength={10}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
             className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground"
-            placeholder="e.g. cp, dcp, or employee1"
-          />
-        </label>
-
-        <label className="mb-5 block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground"
-            placeholder="••••••••"
+            placeholder="10-digit mobile number"
           />
         </label>
 
@@ -75,7 +65,7 @@ export default function LoginPage() {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
         >
           <LogIn className="h-4 w-4" />
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? "Opening…" : "Login"}
         </button>
       </form>
     </div>
