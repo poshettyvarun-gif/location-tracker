@@ -116,7 +116,7 @@ export default function AdminLiveMap() {
       </header>
 
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
-        <div className="relative h-[620px] min-h-[440px]">
+        <div className="relative h-[min(620px,calc(100svh-14rem))] min-h-[430px] sm:h-[560px] lg:h-[620px]">
           <MapContainer center={HYDERABAD_CENTER} zoom={12} zoomControl={false} className="h-full w-full" scrollWheelZoom>
             <InvalidateOnMount />
             <ZoomControl position="topright" />
@@ -135,14 +135,14 @@ export default function AdminLiveMap() {
             })}
           </MapContainer>
 
-          <div className="absolute left-4 top-4 z-[500] rounded-xl bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+          <div className="absolute left-3 top-3 z-[500] max-w-[calc(100%-5.5rem)] rounded-xl bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur sm:left-4 sm:top-4 sm:max-w-none sm:px-4 sm:py-3">
             <p className="text-sm font-semibold text-slate-800">Live worker visibility</p>
             <p className="mt-0.5 text-xs text-slate-500"><span className="font-semibold text-[#19744b]">{locatedWorkers.filter((worker) => worker.onDuty).length} present</span> · {locatedWorkers.length} sharing GPS · {unlocatedWorkers.length} awaiting GPS</p>
             {workerGroups.some((group) => group.workers.length > 1) && <p className="mt-1 text-xs text-slate-500">Tap a numbered marker to view workers at that location.</p>}
           </div>
 
           {selected && (
-            <article className="absolute left-4 top-24 z-[500] w-[min(400px,calc(100%-2rem))] rounded-2xl bg-white p-5 shadow-2xl">
+            <article className="absolute bottom-3 left-3 top-auto z-[500] w-[calc(100%-1.5rem)] rounded-2xl bg-white p-4 shadow-2xl sm:bottom-auto sm:left-4 sm:top-24 sm:w-[min(400px,calc(100%-2rem))] sm:p-5">
               <button onClick={() => setSelectedId(null)} aria-label="Close worker details" className="absolute right-3 top-3 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
               <div className="flex gap-4 pr-6">
                 {selected.profilePhotoUrl || selected.lastCheckIn?.photoUrl ? <img src={selected.profilePhotoUrl || selected.lastCheckIn?.photoUrl} alt="" className="h-20 w-20 shrink-0 rounded-full object-cover" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-sky-100 text-lg font-semibold text-sky-700">{initials(selected.name)}</div>}

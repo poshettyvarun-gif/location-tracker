@@ -40,6 +40,13 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    min-width: 320px;
+  }
+
+  img,
+  video,
+  canvas {
+    max-width: 100%;
   }
 
   /* iOS Safari zooms the whole page in on focus if an input's computed
@@ -51,6 +58,21 @@
     textarea {
       font-size: 16px;
     }
+  }
+}
+
+/* Leaflet control buttons sit above map content. On compact screens keep
+   them on the right, leaving space for the worker summary and detail card. */
+@media (max-width: 639px) {
+  .leaflet-top.leaflet-right {
+    top: 0.25rem;
+    right: 0.25rem;
+  }
+
+  .leaflet-control-zoom a {
+    width: 28px !important;
+    height: 28px !important;
+    line-height: 28px !important;
   }
 }
 

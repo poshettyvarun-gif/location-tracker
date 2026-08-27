@@ -318,7 +318,7 @@ export default function EmployeeDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-card px-4 py-4 sm:px-6">
+      <header className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 sm:gap-3 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl surface-navy">
             <Shield className="h-5 w-5 text-gold" />
@@ -331,7 +331,7 @@ export default function EmployeeDashboard() {
         <button
           onClick={handleLogout}
           disabled={loggingOut}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+          className="flex shrink-0 items-center gap-2 rounded-xl border border-border px-2.5 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 sm:px-3"
         >
           <LogOut className="h-4 w-4" />
           Log out
@@ -351,7 +351,7 @@ export default function EmployeeDashboard() {
           </div>
         )}
 
-        <div className="mb-6 grid grid-cols-2 gap-4">
+        <div className="mb-6 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-4">
           <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <p className="text-xs text-muted-foreground">Shift</p>
             <p className="mt-1 text-sm font-semibold text-card-foreground">
@@ -376,7 +376,7 @@ export default function EmployeeDashboard() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-soft">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-soft sm:p-5">
           <h2 className="mb-1 font-display text-sm font-semibold text-card-foreground">
             Check in at your location
           </h2>

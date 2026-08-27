@@ -48,7 +48,7 @@ export default function AdminLayout() {
   const shell = rank ? DASHBOARD_SHELL[rank] : DASHBOARD_SHELL.cp;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
       {/* Mobile top bar — only the hamburger + title below lg, where the
           sidebar isn't statically visible. */}
       <div className={`fixed inset-x-0 top-0 z-30 flex h-14 items-center gap-3 border-b border-white/10 px-4 text-white lg:hidden ${shell.brand}`}>
@@ -122,7 +122,7 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">
+      <main className="min-w-0 flex-1 overflow-y-auto pt-14 lg:pt-0">
         <section className="border-b border-border bg-card px-4 py-4 sm:px-6 md:px-10">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Signed in as</p>
           <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
