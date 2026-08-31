@@ -91,7 +91,7 @@
 .authenticated-backdrop {
   background-color: #eaf3f8;
   background-image:
-    linear-gradient(120deg, rgb(236 247 251 / 0.93), rgb(225 240 247 / 0.86)),
+    linear-gradient(120deg, rgb(236 247 251 / 0.78), rgb(225 240 247 / 0.68)),
     url("/dashboard-building-background.png");
   background-position: center;
   background-repeat: no-repeat;
