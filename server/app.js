@@ -39,6 +39,10 @@ app.use("/api", (_req, res, next) => {
 });
 
 const MAX_CONSTABLES_PER_INSPECTOR = 10;
+// Attendance is a daily proof-of-presence, not a permanent account state.
+// A worker remains on duty for 24 hours after a successful camera check-in;
+// then a new photo + GPS check-in is required for the next attendance day.
+const ATTENDANCE_VALIDITY_MS = 24 * 60 * 60 * 1000;
 
 // Serverless filesystems are read-only, so photos are held in memory and
 // persisted to the key/value store as data URLs rather than written to disk.
@@ -63,11 +67,21 @@ function publicEmployee(e, extra = {}) {
     inspectorId: e.inspectorId ?? null,
     shiftSlot: e.shiftSlot,
     assignedPlace: e.assignedPlace,
-    onDuty: e.onDuty,
+    onDuty: hasActiveAttendance(e),
     lastLocation: e.lastLocation,
     lastCheckIn: e.lastCheckIn,
     ...extra,
   };
+}
+
+function hasActiveAttendance(employee, now = Date.now()) {
+  const checkedInAt = Number(employee.lastCheckIn?.at);
+  return Boolean(
+    employee.onDuty &&
+      Number.isFinite(checkedInAt) &&
+      checkedInAt <= now &&
+      now - checkedInAt < ATTENDANCE_VALIDITY_MS,
+  );
 }
 
 async function publicEmployeeWithInspector(e) {
@@ -153,11 +167,10 @@ app.post(
       return res.status(401).json({ error: "This mobile number is not registered" });
     }
 
-    // Every field worker is present from the moment they log in. Their
-    // dashboard immediately starts its GPS watch, and a normal logout marks
-    // them off duty again. Shift assignment is no longer part of this flow.
+    // Phone login only opens the field dashboard. Attendance begins only
+    // after the worker submits a fresh camera photo and GPS location.
     const token = await createSession(user.id, user.role);
-    const current = user.role === "employee" ? await updateEmployee(user.id, { onDuty: true }) : user;
+    const current = user;
     res.json({
       token,
       user: current.role === "employee" ? publicEmployee(current) : publicPersonnel(current),
@@ -257,6 +270,9 @@ app.post(
   wrap(async (req, res) => {
     const { lat, lng, accuracy } = req.body || {};
     if (!lat || !lng) return res.status(400).json({ error: "lat/lng required" });
+    if (!hasActiveAttendance(req.user)) {
+      return res.status(409).json({ error: "A new camera and GPS check-in is required before sharing live location" });
+    }
     const emp = await updateEmployee(req.user.id, {
       lastLocation: {
         lat: Number(lat),
@@ -290,8 +306,9 @@ app.get(
       const session = sessionsByEmployee.get(employee.id);
       const checkIn = employee.lastCheckIn && localDateKey(employee.lastCheckIn.at) >= start && localDateKey(employee.lastCheckIn.at) < end ? employee.lastCheckIn : null;
       const location = employee.lastLocation && localDateKey(employee.lastLocation.at) >= start && localDateKey(employee.lastLocation.at) < end ? employee.lastLocation : null;
-      const missed = !session && start < today;
-      return { id: employee.id, name: employee.name, code: employee.code, designation: employee.designation || "Field worker", phone: employee.phone, shift: employee.shiftSlot, shiftWindow: employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : employee.shiftSlot === "night" ? "22:00–06:00" : "Not assigned", loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : employee.onDuty && start === today ? "On duty" : session ? "Completed" : "No attendance" };
+      const missed = !checkIn && start < today;
+      const activeToday = start === today && hasActiveAttendance(employee);
+      return { id: employee.id, name: employee.name, code: employee.code, designation: employee.designation || "Field worker", phone: employee.phone, shift: employee.shiftSlot, shiftWindow: employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : employee.shiftSlot === "night" ? "22:00–06:00" : "Not assigned", loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : activeToday ? "On duty" : checkIn ? "Completed" : "No attendance" };
     }));
   }),
 );

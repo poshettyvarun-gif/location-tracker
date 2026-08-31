@@ -361,7 +361,7 @@ export default function EmployeeDashboard() {
           <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <p className="text-xs text-muted-foreground">Status</p>
             <p className={`mt-1 text-sm font-semibold ${emp.onDuty ? "text-[#3f8f5f]" : "text-muted-foreground"}`}>
-              {emp.onDuty ? "On duty" : "Off duty"}
+              {emp.onDuty ? "On duty" : "Daily check-in required"}
             </p>
           </div>
         </div>
@@ -381,8 +381,8 @@ export default function EmployeeDashboard() {
             Check in at your location
           </h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            Capture a photo with your camera. Your current GPS location is captured automatically
-            when you submit.
+            Capture a fresh photo and share your GPS location. Your attendance remains active for
+            24 hours after submission, then a new check-in is required.
           </p>
 
           <div

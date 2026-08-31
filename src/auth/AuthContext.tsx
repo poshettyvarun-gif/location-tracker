@@ -146,10 +146,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /**
    * Clears this device's view only — no call to /api/auth/logout, so it
-   * can't be blocked by the shift-handover lock and doesn't end the shift.
-   * Used after a check-in to return a shared device to the login screen
-   * without signing the employee off duty; they (or the next officer) sign
-   * back in with their own credentials to pick the device up again.
+   * doesn't end a valid daily attendance record. Used after a successful
+   * check-in to return a shared device to the login screen; the worker stays
+   * on duty until logout or the 24-hour attendance window ends.
    */
   function returnToLogin() {
     localStorage.removeItem(TOKEN_KEY);
