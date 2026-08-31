@@ -301,7 +301,7 @@ export default function EmployeeDashboard() {
 
   if (checkInSuccess) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center">
+      <div className="authenticated-backdrop flex min-h-screen flex-col items-center justify-center px-6 text-center">
         <div className="animate-check-pop flex h-20 w-20 items-center justify-center rounded-full bg-[#3f8f5f]/15">
           <CheckCircle2 className="h-11 w-11 text-[#3f8f5f]" />
         </div>
@@ -317,8 +317,8 @@ export default function EmployeeDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 sm:gap-3 sm:px-6 sm:py-4">
+    <div className="authenticated-backdrop min-h-screen">
+      <header className="flex items-center justify-between gap-2 border-b border-border bg-card/95 px-3 py-3 backdrop-blur-sm sm:gap-3 sm:px-6 sm:py-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl surface-navy">
             <Shield className="h-5 w-5 text-gold" />
