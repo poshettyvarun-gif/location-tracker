@@ -20,6 +20,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 const SEED_PERSONNEL = [
   { id: "cp-1", rank: "cp", name: "Commissioner of Police", phone: "9704761116" },
+  { id: "cp-2", rank: "cp", name: "Commissioner of Police", phone: "7330660709" },
   { id: "dcp-1", rank: "dcp", name: "Deputy Commissioner of Police", phone: "8523008555" },
 ];
 
