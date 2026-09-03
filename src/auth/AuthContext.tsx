@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * Clears this device's view only — no call to /api/auth/logout, so it
    * doesn't end a valid daily attendance record. Used after a successful
    * check-in to return a shared device to the login screen; the worker stays
-   * on duty until logout or the 24-hour attendance window ends.
+   * on duty until the 24-hour attendance window ends.
    */
   function returnToLogin() {
     localStorage.removeItem(TOKEN_KEY);

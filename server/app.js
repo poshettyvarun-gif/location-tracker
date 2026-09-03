@@ -75,10 +75,12 @@ function publicEmployee(e, extra = {}) {
 }
 
 function hasActiveAttendance(employee, now = Date.now()) {
-  const checkedInAt = Number(employee.lastCheckIn?.at);
+  const value = employee.lastCheckIn?.at;
+  // New records use an epoch timestamp, but parsing ISO values as well keeps
+  // attendance reliable for older records that may have been stored that way.
+  const checkedInAt = typeof value === "number" ? value : Date.parse(String(value || ""));
   return Boolean(
-    employee.onDuty &&
-      Number.isFinite(checkedInAt) &&
+    Number.isFinite(checkedInAt) &&
       checkedInAt <= now &&
       now - checkedInAt < ATTENDANCE_VALIDITY_MS,
   );
@@ -182,9 +184,9 @@ app.post(
   "/api/auth/logout",
   auth,
   wrap(async (req, res) => {
-    if (req.user.role === "employee") {
-      await updateEmployee(req.user.id, { onDuty: false });
-    }
+    // Attendance is the daily camera/GPS proof, not a browser session. A
+    // worker can safely leave a shared device after checking in and remains
+    // present until that check-in reaches its 24-hour expiry.
     await destroySession(req.token);
     res.json({ ok: true });
   }),
