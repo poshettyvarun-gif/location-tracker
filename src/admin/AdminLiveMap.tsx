@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, ZoomControl } from "react-leaflet";
 import { divIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Radio, Users, X } from "lucide-react";
+import { ExternalLink, Radio, Users, X } from "lucide-react";
 import { apiFetch } from "../auth/AuthContext";
 import type { EmployeeUser } from "../auth/AuthContext";
 
@@ -82,6 +82,10 @@ function initials(name: string) {
   return name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 }
 
+function googleMapsUrl(location: WorkerLocation) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${location.lat},${location.lng}`)}`;
+}
+
 export default function AdminLiveMap() {
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -148,7 +152,7 @@ export default function AdminLiveMap() {
                 {selected.profilePhotoUrl || selected.lastCheckIn?.photoUrl ? <img src={selected.profilePhotoUrl || selected.lastCheckIn?.photoUrl} alt="" className="h-20 w-20 shrink-0 rounded-full object-cover" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-sky-100 text-lg font-semibold text-sky-700">{initials(selected.name)}</div>}
                 <div className="min-w-0 text-sm text-slate-600"><p className="font-semibold text-slate-800">{selected.name}</p><p>{selected.designation || "Field worker"}</p><p>Mobile: {selected.phone}</p><p className={`mt-1 font-medium ${selected.onDuty ? "text-[#19744b]" : "text-red-600"}`}>{selected.onDuty ? "Present / On duty" : "Absent / Off duty"}</p></div>
               </div>
-              {selected.mapLocation && <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500"><p>{selected.mapLocation.lat.toFixed(5)}, {selected.mapLocation.lng.toFixed(5)}{selected.mapLocation.accuracy ? ` (±${Math.round(selected.mapLocation.accuracy)}m)` : ""}</p><p className="mt-0.5">Last update: {new Date(selected.mapLocation.at).toLocaleString()}</p></div>}
+              {selected.mapLocation && <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span>{selected.mapLocation.lat.toFixed(5)}, {selected.mapLocation.lng.toFixed(5)}{selected.mapLocation.accuracy ? ` (±${Math.round(selected.mapLocation.accuracy)}m)` : ""}</span><a href={googleMapsUrl(selected.mapLocation)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-azure underline-offset-2 hover:underline"><ExternalLink className="h-3.5 w-3.5" />View</a></div><p className="mt-0.5">Last update: {new Date(selected.mapLocation.at).toLocaleString()}</p></div>}
             </article>
           )}
         </div>
