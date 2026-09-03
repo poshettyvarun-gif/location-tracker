@@ -291,6 +291,12 @@ app.post(
       patch.lastLocation = { lat: checkIn.lat, lng: checkIn.lng, accuracy: checkIn.accuracy, at: checkIn.at };
     }
     const emp = await updateEmployee(req.user.id, patch);
+    // A fresh Shift A attendance record starts a new handover cycle. If Shift
+    // B had been revealed earlier but did not use it, that old permission is
+    // cancelled; Shift A must explicitly reveal the new Shift B handover.
+    if (req.user.id === SHIFT_A_CONSTABLE_ID) {
+      await updateEmployee(SHIFT_B_CONSTABLE_ID, { onDuty: false });
+    }
     res.json(publicEmployee(emp));
   }),
 );
