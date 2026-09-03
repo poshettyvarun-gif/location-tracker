@@ -33,6 +33,8 @@ export interface EmployeeUser {
   /** Only present on admin-area list/detail responses, resolved server-side for display. */
   inspectorName?: string | null;
   shiftSlot: "morning" | "afternoon" | "night" | null;
+  shiftLabel: "Shift A" | "Shift B" | null;
+  canRevealShiftB: boolean;
   assignedPlace: string | null;
   onDuty: boolean;
   lastLocation: { lat: number; lng: number; accuracy: number | null; at: number } | null;

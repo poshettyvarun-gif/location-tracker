@@ -39,6 +39,8 @@ app.use("/api", (_req, res, next) => {
 });
 
 const MAX_CONSTABLES_PER_INSPECTOR = 10;
+const SHIFT_A_CONSTABLE_ID = "worker-constable-1";
+const SHIFT_B_CONSTABLE_ID = "worker-constable-shift-b-1";
 // Attendance is a daily proof-of-presence, not a permanent account state.
 // A worker remains on duty for 24 hours after a successful camera check-in;
 // then a new photo + GPS check-in is required for the next attendance day.
@@ -66,6 +68,8 @@ function publicEmployee(e, extra = {}) {
     profilePhotoUrl: e.profilePhotoId ? `/api/photos/${e.profilePhotoId}` : null,
     inspectorId: e.inspectorId ?? null,
     shiftSlot: e.shiftSlot,
+    shiftLabel: e.id === SHIFT_A_CONSTABLE_ID ? "Shift A" : e.id === SHIFT_B_CONSTABLE_ID ? "Shift B" : null,
+    canRevealShiftB: e.id === SHIFT_A_CONSTABLE_ID,
     assignedPlace: e.assignedPlace,
     onDuty: hasActiveAttendance(e),
     lastLocation: e.lastLocation,
@@ -168,6 +172,11 @@ app.post(
     if (!user) {
       return res.status(401).json({ error: "This mobile number is not registered" });
     }
+    // Shift B has no independent entry point. The Shift A constable opens one
+    // handover window after completing their own attendance check-in.
+    if (user.id === SHIFT_B_CONSTABLE_ID && !user.onDuty) {
+      return res.status(403).json({ error: "Shift B is locked. Ask the Shift A constable to reveal Shift B after their check-in." });
+    }
 
     // Phone login only opens the field dashboard. Attendance begins only
     // after the worker submits a fresh camera photo and GPS location.
@@ -177,6 +186,25 @@ app.post(
       token,
       user: current.role === "employee" ? publicEmployee(current) : publicPersonnel(current),
     });
+  }),
+);
+
+/** Shift A explicitly opens exactly one Shift B check-in window. */
+app.post(
+  "/api/duty/reveal-shift-b",
+  auth,
+  requireEmployee,
+  wrap(async (req, res) => {
+    if (req.user.id !== SHIFT_A_CONSTABLE_ID) {
+      return res.status(403).json({ error: "Only the Shift A constable can reveal Shift B" });
+    }
+    if (!hasActiveAttendance(req.user)) {
+      return res.status(409).json({ error: "Complete your camera and GPS check-in before revealing Shift B" });
+    }
+    const shiftB = await getEmployee(SHIFT_B_CONSTABLE_ID);
+    if (!shiftB) return res.status(500).json({ error: "Shift B constable is not available yet. Please try again." });
+    await updateEmployee(SHIFT_B_CONSTABLE_ID, { onDuty: true });
+    res.json({ ok: true, message: "Shift B has been revealed and can now log in" });
   }),
 );
 
@@ -256,7 +284,9 @@ app.post(
       employeeName: req.user.name,
     };
 
-    const patch = { onDuty: true, lastCheckIn: checkIn };
+    // The `onDuty` field is only a one-time entry gate for Shift B. Attendance
+    // itself is calculated from the current 24-hour check-in record.
+    const patch = { onDuty: req.user.id === SHIFT_B_CONSTABLE_ID ? false : true, lastCheckIn: checkIn };
     if (hasLocation) {
       patch.lastLocation = { lat: checkIn.lat, lng: checkIn.lng, accuracy: checkIn.accuracy, at: checkIn.at };
     }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Camera, CheckCircle2, LogOut, MapPin, RotateCcw, Shield, ShieldCheck, VideoOff } from "lucide-react";
+import { Camera, CheckCircle2, LogOut, MapPin, RotateCcw, Shield, ShieldCheck, Unlock, VideoOff } from "lucide-react";
 import { useAuth, apiFetch, type EmployeeUser } from "../auth/AuthContext";
 
 const SHIFT_LABEL: Record<string, string> = {
@@ -62,6 +62,7 @@ export default function EmployeeDashboard() {
   const [capturedPhoto, setCapturedPhoto] = useState<{ file: File; previewUrl: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [checkInSuccess, setCheckInSuccess] = useState<{ verified: boolean } | null>(null);
+  const [revealingShiftB, setRevealingShiftB] = useState(false);
   const [logoutBlocked, setLogoutBlocked] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [location, setLocation] = useState<LocationState>({ status: "locating" });
@@ -275,10 +276,15 @@ export default function EmployeeDashboard() {
       // — stacking a toast under an overlay that's about to navigate away
       // just gets lost.
       setCheckInSuccess({ verified: Boolean(fix) });
-      setTimeout(() => {
-        returnToLogin();
-        navigate("/login", { replace: true });
-      }, RETURN_TO_LOGIN_DELAY_MS);
+      // Shift A must explicitly hand over to Shift B. Keep that success
+      // screen open until they make the choice; every other worker returns to
+      // the shared-device login screen automatically.
+      if (!emp.canRevealShiftB) {
+        setTimeout(() => {
+          returnToLogin();
+          navigate("/login", { replace: true });
+        }, RETURN_TO_LOGIN_DELAY_MS);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Check-in failed");
     } finally {
@@ -299,6 +305,20 @@ export default function EmployeeDashboard() {
     }
   }
 
+  async function revealShiftB() {
+    setRevealingShiftB(true);
+    try {
+      await apiFetch("/api/duty/reveal-shift-b", { method: "POST" });
+      toast.success("Shift B is now unlocked and can log in.");
+      returnToLogin();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reveal Shift B");
+    } finally {
+      setRevealingShiftB(false);
+    }
+  }
+
   if (checkInSuccess) {
     return (
       <div className="authenticated-backdrop flex min-h-screen flex-col items-center justify-center px-6 text-center">
@@ -311,7 +331,30 @@ export default function EmployeeDashboard() {
             ? "Your photo and location were recorded."
             : "Your photo was recorded — location was flagged as unverified."}
         </p>
-        <p className="mt-6 text-xs text-muted-foreground">Returning to sign in…</p>
+        {!emp.canRevealShiftB && <p className="mt-6 text-xs text-muted-foreground">Returning to sign in…</p>}
+        {emp.canRevealShiftB && (
+          <div className="mt-5 w-full max-w-xs space-y-3">
+            <p className="text-sm font-medium text-foreground">Your attendance is complete. Reveal Shift B when the next constable is ready.</p>
+            <button
+              onClick={revealShiftB}
+              disabled={revealingShiftB}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              <Unlock className="h-4 w-4" />
+              {revealingShiftB ? "Revealing Shift B…" : "Reveal Shift B"}
+            </button>
+            <button
+              onClick={() => {
+                returnToLogin();
+                navigate("/login", { replace: true });
+              }}
+              disabled={revealingShiftB}
+              className="w-full rounded-xl border border-border px-4 py-3 text-sm font-semibold text-card-foreground disabled:opacity-50"
+            >
+              Keep Shift B locked
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -355,7 +398,7 @@ export default function EmployeeDashboard() {
           <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <p className="text-xs text-muted-foreground">Shift</p>
             <p className="mt-1 text-sm font-semibold text-card-foreground">
-              {emp.shiftSlot ? SHIFT_LABEL[emp.shiftSlot] : "Not assigned"}
+              {emp.shiftLabel || (emp.shiftSlot ? SHIFT_LABEL[emp.shiftSlot] : "Not assigned")}
             </p>
           </div>
           <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">

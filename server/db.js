@@ -26,7 +26,8 @@ const SEED_PERSONNEL = [
 const SEED_WORKERS = [
   { id: "worker-acp-1", code: "ACP-01", name: "Assistant Commissioner of Police", designation: "Assistant Commissioner of Police", phone: "8008699722" },
   { id: "worker-inspector-1", code: "INS-01", name: "Police Inspector", designation: "Police Inspector", phone: "7659028605" },
-  { id: "worker-constable-1", code: "PC-01", name: "Police Constable", designation: "Constable", phone: "7793966921" },
+  { id: "worker-constable-1", code: "PC-A", name: "Police Constable — Shift A", designation: "Constable · Shift A", phone: "7793966921" },
+  { id: "worker-constable-shift-b-1", code: "PC-B", name: "Police Constable — Shift B", designation: "Constable · Shift B", phone: "9866117642" },
   { id: "worker-si-1", code: "SI-01", name: "Sub-Inspector", designation: "Sub-Inspector", phone: "8688653742" },
   { id: "worker-ci-1", code: "CI-01", name: "Circle Inspector", designation: "Circle Inspector", phone: "9392822792" },
 ];
