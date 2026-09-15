@@ -74,6 +74,7 @@ function publicEmployee(e, extra = {}) {
     shiftLabel: e.id === SHIFT_A_CONSTABLE_ID ? "Shift A" : e.id === SHIFT_B_CONSTABLE_ID ? "Shift B" : plannedShift?.label ?? null,
     shiftTime: plannedShift?.time ?? null,
     sector: deployment?.sector ?? e.assignedPlace ?? null,
+    placeOfPosting: deployment?.posting ?? null,
     canRevealShiftB: e.id === SHIFT_A_CONSTABLE_ID,
     assignedPlace: e.assignedPlace,
     onDuty: hasActiveAttendance(e),

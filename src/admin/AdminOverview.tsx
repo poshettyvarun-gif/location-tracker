@@ -34,7 +34,7 @@ export default function AdminOverview() {
   const title = user?.role === "dcp" ? "Deputy command monitoring" : "Command monitoring";
   const sectors = [...new Set(employees.map((employee) => employee.sector).filter((item): item is string => Boolean(item)))].sort();
   const visibleEmployees = employees.filter((employee) => {
-    const haystack = `${employee.name} ${employee.code} ${employee.phone} ${employee.designation || ""} ${employee.sector || ""}`.toLowerCase();
+    const haystack = `${employee.name} ${employee.code} ${employee.phone} ${employee.designation || ""} ${employee.sector || ""} ${employee.placeOfPosting || ""}`.toLowerCase();
     return (sector === "all" || employee.sector === sector) && haystack.includes(query.trim().toLowerCase());
   });
 
@@ -43,7 +43,7 @@ export default function AdminOverview() {
       <header className="mb-6 sm:mb-8">
         <h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Read-only live view of every deployed worker. Search by name, phone, designation, or sector. {onDutyCount} of {employees.length} on duty now.
+          Read-only live view of every deployed worker. Search by name, phone, designation, sector, or place of posting. {onDutyCount} of {employees.length} on duty now.
         </p>
       </header>
 
@@ -62,13 +62,14 @@ export default function AdminOverview() {
             </select>
           </div>
           <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
-          <table className="w-full min-w-[1060px] text-left text-sm">
+          <table className="w-full min-w-[1240px] text-left text-sm">
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Worker</th>
                 <th className="px-4 py-3 font-medium">Designation</th>
                 <th className="px-4 py-3 font-medium">Phone number</th>
                 <th className="px-4 py-3 font-medium">Deployment</th>
+                <th className="px-4 py-3 font-medium">Place of posting</th>
                 <th className="px-4 py-3 font-medium">Attendance</th>
                 <th className="px-4 py-3 font-medium">Last location</th>
                 <th className="px-4 py-3" />
@@ -92,6 +93,7 @@ export default function AdminOverview() {
                     <p className="font-medium text-card-foreground">{employee.sector || "Not assigned"}</p>
                     <p className="text-xs text-muted-foreground">{employee.shiftLabel ? `${employee.shiftLabel}${employee.shiftTime ? ` · ${employee.shiftTime}` : ""}` : "Shift not assigned"}</p>
                   </td>
+                  <td className="max-w-64 px-4 py-4 text-muted-foreground">{employee.placeOfPosting || "Not assigned"}</td>
                   <td className="px-4 py-4">
                     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${employee.onDuty ? "text-[#265c3b]" : "text-muted-foreground"}`}>
                       <span className={`h-2 w-2 rounded-full ${employee.onDuty ? "bg-[#3f8f5f]" : "bg-muted-foreground/40"}`} />

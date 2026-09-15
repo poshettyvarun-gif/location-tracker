@@ -37,6 +37,7 @@ export interface EmployeeUser {
   shiftTime?: string | null;
   /** Bada Ganesh deployment sector, when the employee is on the 2026 roster. */
   sector?: string | null;
+  placeOfPosting?: string | null;
   canRevealShiftB: boolean;
   assignedPlace: string | null;
   onDuty: boolean;
