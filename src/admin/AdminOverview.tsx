@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight, MapPin, UserRound } from "lucide-react";
+import { ChevronRight, MapPin, Search, UserRound } from "lucide-react";
 import { apiFetch, useAuth } from "../auth/AuthContext";
 import type { EmployeeUser } from "../auth/AuthContext";
 
@@ -9,6 +9,8 @@ const POLL_MS = 8000;
 export default function AdminOverview() {
   const { user } = useAuth();
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
+  const [query, setQuery] = useState("");
+  const [sector, setSector] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -30,33 +32,50 @@ export default function AdminOverview() {
 
   const onDutyCount = employees.filter((employee) => employee.onDuty).length;
   const title = user?.role === "dcp" ? "Deputy command monitoring" : "Command monitoring";
+  const sectors = [...new Set(employees.map((employee) => employee.sector).filter((item): item is string => Boolean(item)))].sort();
+  const visibleEmployees = employees.filter((employee) => {
+    const haystack = `${employee.name} ${employee.code} ${employee.phone} ${employee.designation || ""} ${employee.sector || ""}`.toLowerCase();
+    return (sector === "all" || employee.sector === sector) && haystack.includes(query.trim().toLowerCase());
+  });
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">
       <header className="mb-6 sm:mb-8">
         <h1 className="font-display text-xl font-semibold text-foreground sm:text-2xl">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Read-only live view of worker designation, attendance, camera check-in, GPS location, and phone number. {onDutyCount} of {employees.length} on duty now.
+          Read-only live view of every deployed worker. Search by name, phone, designation, or sector. {onDutyCount} of {employees.length} on duty now.
         </p>
       </header>
 
       {employees.length === 0 ? (
         <p className="text-sm text-muted-foreground">No worker records are available yet.</p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
-          <table className="w-full min-w-[860px] text-left text-sm">
+        <>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+            <label className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search deployed employees" className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-3 text-sm outline-none focus:border-azure" />
+            </label>
+            <select value={sector} onChange={(event) => setSector(event.target.value)} className="h-10 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-azure">
+              <option value="all">All sectors</option>
+              {sectors.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
+          <table className="w-full min-w-[1060px] text-left text-sm">
             <thead>
               <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Worker</th>
                 <th className="px-4 py-3 font-medium">Designation</th>
                 <th className="px-4 py-3 font-medium">Phone number</th>
+                <th className="px-4 py-3 font-medium">Deployment</th>
                 <th className="px-4 py-3 font-medium">Attendance</th>
                 <th className="px-4 py-3 font-medium">Last location</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
-              {employees.map((employee) => (
+              {visibleEmployees.map((employee) => (
                 <tr key={employee.id} className="border-b border-border last:border-0 hover:bg-muted/50">
                   <td className="px-4 py-4">
                     <Link to={`/admin/employees/${employee.id}`} className="flex items-center gap-3">
@@ -69,6 +88,10 @@ export default function AdminOverview() {
                   </td>
                   <td className="px-4 py-4 text-muted-foreground">{employee.designation || "Field worker"}</td>
                   <td className="px-4 py-4 text-muted-foreground">{employee.phone}</td>
+                  <td className="px-4 py-4">
+                    <p className="font-medium text-card-foreground">{employee.sector || "Not assigned"}</p>
+                    <p className="text-xs text-muted-foreground">{employee.shiftLabel ? `${employee.shiftLabel}${employee.shiftTime ? ` · ${employee.shiftTime}` : ""}` : "Shift not assigned"}</p>
+                  </td>
                   <td className="px-4 py-4">
                     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${employee.onDuty ? "text-[#265c3b]" : "text-muted-foreground"}`}>
                       <span className={`h-2 w-2 rounded-full ${employee.onDuty ? "bg-[#3f8f5f]" : "bg-muted-foreground/40"}`} />
@@ -88,6 +111,8 @@ export default function AdminOverview() {
             </tbody>
           </table>
         </div>
+        {visibleEmployees.length === 0 && <p className="mt-4 text-sm text-muted-foreground">No deployed employees match this filter.</p>}
+        </>
       )}
     </div>
   );

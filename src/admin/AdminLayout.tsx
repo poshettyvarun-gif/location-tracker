@@ -102,6 +102,10 @@ export default function AdminLayout() {
             <ClipboardList className="h-4 w-4 shrink-0" />
             Attendance report
           </NavLink>
+          <NavLink to="/admin/deployment" className={NAV_LINK_CLASS}>
+            <ClipboardList className="h-4 w-4 shrink-0" />
+            Deployment plan
+          </NavLink>
           <NavLink to="/admin/map" className={NAV_LINK_CLASS}>
             <MapPinned className="h-4 w-4 shrink-0" />
             {shell.map}

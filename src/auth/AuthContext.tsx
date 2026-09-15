@@ -33,7 +33,10 @@ export interface EmployeeUser {
   /** Only present on admin-area list/detail responses, resolved server-side for display. */
   inspectorName?: string | null;
   shiftSlot: "morning" | "afternoon" | "night" | null;
-  shiftLabel: "Shift A" | "Shift B" | null;
+  shiftLabel: string | null;
+  shiftTime?: string | null;
+  /** Bada Ganesh deployment sector, when the employee is on the 2026 roster. */
+  sector?: string | null;
   canRevealShiftB: boolean;
   assignedPlace: string | null;
   onDuty: boolean;

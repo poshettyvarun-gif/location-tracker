@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { supabase, isSupabaseConfigured, PHOTO_BUCKET } from "./supabaseClient.js";
+import { PDF_DEPLOYMENT_ROSTER } from "./pdfDeploymentRoster.js";
 
 /** Shift slots form a fixed relief cycle: morning -> afternoon -> night -> morning (next day). */
 export const SHIFT_SLOTS = ["morning", "afternoon", "night"];
@@ -17,6 +18,10 @@ export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
 
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
+// Phone number is the sole credential. Legacy password_hash remains required
+// by the old table schema, so every seed record can safely share this unused
+// non-authentication value instead of doing hundreds of expensive hashes.
+const LEGACY_NON_AUTH_PASSWORD_HASH = bcrypt.hashSync(crypto.randomUUID(), 10);
 
 const SEED_PERSONNEL = [
   { id: "cp-1", rank: "cp", name: "Commissioner of Police", phone: "9704761116" },
@@ -31,6 +36,18 @@ const SEED_WORKERS = [
   { id: "worker-constable-shift-b-1", code: "PC-B", name: "Police Constable — Shift B", designation: "Constable · Shift B", phone: "9866117642" },
   { id: "worker-si-1", code: "SI-01", name: "Sub-Inspector", designation: "Sub-Inspector", phone: "8688653742" },
   { id: "worker-ci-1", code: "CI-01", name: "Circle Inspector", designation: "Circle Inspector", phone: "9392822792" },
+  // The signed Bada Ganesh deployment roster uses phone-only access. Its
+  // assigned sector and shift are seeded with the account, while attendance
+  // remains empty until the officer performs their own camera/GPS check-in.
+  ...PDF_DEPLOYMENT_ROSTER.map((worker) => ({
+    id: worker.id,
+    code: worker.code,
+    name: worker.name,
+    designation: worker.designation,
+    phone: worker.phone,
+    shiftSlot: worker.shift === "A" ? "morning" : worker.shift === "B" ? "afternoon" : "night",
+    assignedPlace: worker.sector,
+  })),
 ];
 
 function freshPersonnel() {
@@ -42,7 +59,7 @@ function freshPersonnel() {
     // Retained only because the legacy database schema still requires these
     // columns. They are never accepted for authentication.
     username: `phone-${p.phone}`,
-    passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
+    passwordHash: LEGACY_NON_AUTH_PASSWORD_HASH,
     role: p.rank,
   }));
 }
@@ -52,12 +69,12 @@ function freshWorkers() {
     ...worker,
     phone: worker.phone,
     username: `phone-${worker.phone}`,
-    passwordHash: bcrypt.hashSync(crypto.randomUUID(), 10),
+    passwordHash: LEGACY_NON_AUTH_PASSWORD_HASH,
     role: "employee",
     profilePhotoId: null,
     inspectorId: null,
-    shiftSlot: null,
-    assignedPlace: null,
+    shiftSlot: worker.shiftSlot ?? null,
+    assignedPlace: worker.assignedPlace ?? null,
     onDuty: false,
     lastLocation: null,
     lastCheckIn: null,

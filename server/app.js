@@ -27,6 +27,7 @@ import {
   SHIFT_SLOTS,
   CREATABLE_RANKS,
 } from "./db.js";
+import { DEPLOYMENT_SHIFT_DETAILS, deploymentForPhone } from "./pdfDeploymentRoster.js";
 
 const app = express();
 app.use(cors());
@@ -58,6 +59,8 @@ function publicPersonnel(p, extra = {}) {
 }
 
 function publicEmployee(e, extra = {}) {
+  const deployment = deploymentForPhone(e.phone);
+  const plannedShift = deployment ? DEPLOYMENT_SHIFT_DETAILS[deployment.shift] : null;
   return {
     id: e.id,
     code: e.code,
@@ -68,7 +71,9 @@ function publicEmployee(e, extra = {}) {
     profilePhotoUrl: e.profilePhotoId ? `/api/photos/${e.profilePhotoId}` : null,
     inspectorId: e.inspectorId ?? null,
     shiftSlot: e.shiftSlot,
-    shiftLabel: e.id === SHIFT_A_CONSTABLE_ID ? "Shift A" : e.id === SHIFT_B_CONSTABLE_ID ? "Shift B" : null,
+    shiftLabel: e.id === SHIFT_A_CONSTABLE_ID ? "Shift A" : e.id === SHIFT_B_CONSTABLE_ID ? "Shift B" : plannedShift?.label ?? null,
+    shiftTime: plannedShift?.time ?? null,
+    sector: deployment?.sector ?? e.assignedPlace ?? null,
     canRevealShiftB: e.id === SHIFT_A_CONSTABLE_ID,
     assignedPlace: e.assignedPlace,
     onDuty: hasActiveAttendance(e),
@@ -341,12 +346,14 @@ app.get(
     }
     const today = localDateKey(Date.now());
     res.json(allEmployees.map((employee) => {
+      const deployment = deploymentForPhone(employee.phone);
+      const plannedShift = deployment ? DEPLOYMENT_SHIFT_DETAILS[deployment.shift] : null;
       const session = sessionsByEmployee.get(employee.id);
       const checkIn = employee.lastCheckIn && localDateKey(employee.lastCheckIn.at) >= start && localDateKey(employee.lastCheckIn.at) < end ? employee.lastCheckIn : null;
       const location = employee.lastLocation && localDateKey(employee.lastLocation.at) >= start && localDateKey(employee.lastLocation.at) < end ? employee.lastLocation : null;
       const missed = !checkIn && start < today;
       const activeToday = start === today && hasActiveAttendance(employee);
-      return { id: employee.id, name: employee.name, code: employee.code, designation: employee.designation || "Field worker", phone: employee.phone, shift: employee.shiftSlot, shiftWindow: employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : employee.shiftSlot === "night" ? "22:00–06:00" : "Not assigned", loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : activeToday ? "On duty" : checkIn ? "Completed" : "No attendance" };
+      return { id: employee.id, name: employee.name, code: employee.code, designation: employee.designation || "Field worker", phone: employee.phone, sector: deployment?.sector ?? employee.assignedPlace ?? null, shift: deployment?.shift ?? employee.shiftSlot, shiftWindow: plannedShift?.time ?? (employee.shiftSlot === "morning" ? "06:00–14:00" : employee.shiftSlot === "afternoon" ? "14:00–22:00" : employee.shiftSlot === "night" ? "22:00–06:00" : "Not assigned"), loginAt: session?.createdAt || null, checkInAt: checkIn?.at || null, lastLocation: location ? { lat: location.lat, lng: location.lng, at: location.at } : null, status: missed ? "Missed" : activeToday ? "On duty" : checkIn ? "Completed" : "No attendance" };
     }));
   }),
 );
