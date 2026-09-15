@@ -39,6 +39,8 @@ export interface EmployeeUser {
   sector?: string | null;
   placeOfPosting?: string | null;
   canRevealShiftB: boolean;
+  canRevealNextShift: boolean;
+  nextShiftLabel: string | null;
   assignedPlace: string | null;
   onDuty: boolean;
   lastLocation: { lat: number; lng: number; accuracy: number | null; at: number } | null;

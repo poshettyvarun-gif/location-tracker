@@ -51,6 +51,17 @@ create table if not exists public.sessions (
   expires_at timestamptz not null
 );
 
+-- A shift may be opened only by the prior checked-in shift at the same
+-- deployment posting. Shift A releases B; Shift B releases C.
+create table if not exists public.shift_handovers (
+  posting_key text not null,
+  duty_date date not null,
+  unlocked_through text not null check (unlocked_through in ('B', 'C')),
+  released_by text not null references public.employees (id) on delete cascade,
+  released_at timestamptz not null default now(),
+  primary key (posting_key, duty_date)
+);
+
 create index if not exists sessions_expires_at_idx on public.sessions (expires_at);
 create index if not exists employees_inspector_id_idx on public.employees (inspector_id);
 create index if not exists personnel_supervisor_inspector_id_idx on public.personnel (supervisor_inspector_id);
@@ -62,6 +73,7 @@ alter table public.meta enable row level security;
 alter table public.personnel enable row level security;
 alter table public.employees enable row level security;
 alter table public.sessions enable row level security;
+alter table public.shift_handovers enable row level security;
 -- No policies are created, so the anon/authenticated roles get zero access
 -- (only service_role, which bypasses RLS, can read or write).
 

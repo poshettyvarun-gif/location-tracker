@@ -276,10 +276,9 @@ export default function EmployeeDashboard() {
       // — stacking a toast under an overlay that's about to navigate away
       // just gets lost.
       setCheckInSuccess({ verified: Boolean(fix) });
-      // Shift A must explicitly hand over to Shift B. Keep that success
-      // screen open until they make the choice; every other worker returns to
-      // the shared-device login screen automatically.
-      if (!emp.canRevealShiftB) {
+      // Only A/B workers explicitly hand over. Everyone else returns to the
+      // shared login screen when their proof-of-attendance is complete.
+      if (!emp.canRevealNextShift) {
         setTimeout(() => {
           returnToLogin();
           navigate("/login", { replace: true });
@@ -305,15 +304,15 @@ export default function EmployeeDashboard() {
     }
   }
 
-  async function revealShiftB() {
+  async function revealNextShift() {
     setRevealingShiftB(true);
     try {
-      await apiFetch("/api/duty/reveal-shift-b", { method: "POST" });
-      toast.success("Shift B is now unlocked and can log in.");
+      const result = await apiFetch("/api/duty/reveal-next-shift", { method: "POST" });
+      toast.success(result.message || `${emp.nextShiftLabel} is now unlocked and can log in.`);
       returnToLogin();
       navigate("/login", { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not reveal Shift B");
+      toast.error(err instanceof Error ? err.message : "Could not reveal the next shift");
     } finally {
       setRevealingShiftB(false);
     }
@@ -331,17 +330,17 @@ export default function EmployeeDashboard() {
             ? "Your photo and location were recorded."
             : "Your photo was recorded — location was flagged as unverified."}
         </p>
-        {!emp.canRevealShiftB && <p className="mt-6 text-xs text-muted-foreground">Returning to sign in…</p>}
-        {emp.canRevealShiftB && (
+        {!emp.canRevealNextShift && <p className="mt-6 text-xs text-muted-foreground">Returning to sign in…</p>}
+        {emp.canRevealNextShift && (
           <div className="mt-5 w-full max-w-xs space-y-3">
-            <p className="text-sm font-medium text-foreground">Your attendance is complete. Reveal Shift B when the next constable is ready.</p>
+            <p className="text-sm font-medium text-foreground">Your attendance is complete. Reveal {emp.nextShiftLabel} when the next team is ready.</p>
             <button
-              onClick={revealShiftB}
+              onClick={revealNextShift}
               disabled={revealingShiftB}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
             >
               <Unlock className="h-4 w-4" />
-              {revealingShiftB ? "Revealing Shift B…" : "Reveal Shift B"}
+              {revealingShiftB ? `Revealing ${emp.nextShiftLabel}…` : `Reveal ${emp.nextShiftLabel}`}
             </button>
             <button
               onClick={() => {
@@ -351,7 +350,7 @@ export default function EmployeeDashboard() {
               disabled={revealingShiftB}
               className="w-full rounded-xl border border-border px-4 py-3 text-sm font-semibold text-card-foreground disabled:opacity-50"
             >
-              Keep Shift B locked
+              Keep {emp.nextShiftLabel} locked
             </button>
           </div>
         )}

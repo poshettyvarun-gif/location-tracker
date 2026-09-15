@@ -169,6 +169,7 @@ const mem = {
   employees: new Map(),
   sessions: new Map(),
   photos: new Map(),
+  shiftHandovers: new Map(),
 };
 
 function memSeed() {
@@ -293,6 +294,50 @@ export async function getSessionUser(token) {
 export async function destroySession(token) {
   if (!isSupabaseConfigured) return void mem.sessions.delete(token);
   await supabase.from("sessions").delete().eq("token", token);
+}
+
+// ---------------------------------------------------------------------------
+// Deployment shift handovers
+// ---------------------------------------------------------------------------
+// A handover belongs to one posting and one operational day. It is deliberately
+// separate from attendance: a successful check-in proves presence, while this
+// record is the explicit A -> B -> C permission to open the next shift.
+
+function handoverKey(postingKey, dutyDate) {
+  return `${postingKey}:${dutyDate}`;
+}
+
+export async function getShiftHandover(postingKey, dutyDate) {
+  if (!isSupabaseConfigured) return mem.shiftHandovers.get(handoverKey(postingKey, dutyDate)) || null;
+  const { data, error } = await supabase
+    .from("shift_handovers")
+    .select("posting_key, duty_date, unlocked_through, released_by, released_at")
+    .eq("posting_key", postingKey)
+    .eq("duty_date", dutyDate)
+    .maybeSingle();
+  if (error) throw new Error(`Supabase shift handover: ${error.message}`);
+  return data ? { postingKey: data.posting_key, dutyDate: data.duty_date, unlockedThrough: data.unlocked_through, releasedBy: data.released_by, releasedAt: new Date(data.released_at).getTime() } : null;
+}
+
+export async function releaseShiftHandover({ postingKey, dutyDate, unlockedThrough, releasedBy }) {
+  const record = { postingKey, dutyDate, unlockedThrough, releasedBy, releasedAt: Date.now() };
+  if (!isSupabaseConfigured) {
+    mem.shiftHandovers.set(handoverKey(postingKey, dutyDate), record);
+    return record;
+  }
+  const { data, error } = await supabase
+    .from("shift_handovers")
+    .upsert({ posting_key: postingKey, duty_date: dutyDate, unlocked_through: unlockedThrough, released_by: releasedBy, released_at: new Date(record.releasedAt).toISOString() }, { onConflict: "posting_key,duty_date" })
+    .select("posting_key, duty_date, unlocked_through, released_by, released_at")
+    .single();
+  if (error) throw new Error(`Supabase shift handover: ${error.message}`);
+  return { postingKey: data.posting_key, dutyDate: data.duty_date, unlockedThrough: data.unlocked_through, releasedBy: data.released_by, releasedAt: new Date(data.released_at).getTime() };
+}
+
+export async function resetShiftHandover(postingKey, dutyDate) {
+  if (!isSupabaseConfigured) return void mem.shiftHandovers.delete(handoverKey(postingKey, dutyDate));
+  const { error } = await supabase.from("shift_handovers").delete().eq("posting_key", postingKey).eq("duty_date", dutyDate);
+  if (error) throw new Error(`Supabase shift handover: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------

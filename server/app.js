@@ -24,6 +24,9 @@ import {
   loadPhotoUrl,
   loadPhotoBuffer,
   deletePhoto,
+  getShiftHandover,
+  releaseShiftHandover,
+  resetShiftHandover,
   SHIFT_SLOTS,
   CREATABLE_RANKS,
 } from "./db.js";
@@ -61,6 +64,7 @@ function publicPersonnel(p, extra = {}) {
 function publicEmployee(e, extra = {}) {
   const deployment = deploymentForPhone(e.phone);
   const plannedShift = deployment ? DEPLOYMENT_SHIFT_DETAILS[deployment.shift] : null;
+  const nextShift = deployment?.shift === "A" ? "B" : deployment?.shift === "B" ? "C" : null;
   return {
     id: e.id,
     code: e.code,
@@ -76,6 +80,8 @@ function publicEmployee(e, extra = {}) {
     sector: deployment?.sector ?? e.assignedPlace ?? null,
     placeOfPosting: deployment?.posting ?? null,
     canRevealShiftB: e.id === SHIFT_A_CONSTABLE_ID,
+    canRevealNextShift: Boolean(nextShift) || e.id === SHIFT_A_CONSTABLE_ID,
+    nextShiftLabel: nextShift ? `Shift ${nextShift}` : e.id === SHIFT_A_CONSTABLE_ID ? "Shift B" : null,
     assignedPlace: e.assignedPlace,
     onDuty: hasActiveAttendance(e),
     lastLocation: e.lastLocation,
@@ -157,6 +163,36 @@ function localDateKey(at) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: process.env.SHIFT_TIME_ZONE || "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
 }
 
+function localHour(at) {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: process.env.SHIFT_TIME_ZONE || "Asia/Kolkata", hour: "2-digit", hourCycle: "h23" }).format(new Date(at)));
+}
+
+/** Shift C runs past midnight, so its 00:00–01:00 work remains in the prior A→B→C duty cycle. */
+function deploymentDutyDate(shift, now = Date.now()) {
+  if (shift !== "C" || localHour(now) >= 3) return localDateKey(now);
+  const yesterday = new Date(now - 24 * 60 * 60 * 1000);
+  return localDateKey(yesterday);
+}
+
+function deploymentPostingKey(deployment) {
+  return `${deployment.sector}::${deployment.posting}`;
+}
+
+async function getDeploymentShiftAccess(user) {
+  const deployment = deploymentForPhone(user.phone);
+  if (!deployment || !["B", "C"].includes(deployment.shift)) return { allowed: true, deployment };
+  const dutyDate = deploymentDutyDate(deployment.shift);
+  const handover = await getShiftHandover(deploymentPostingKey(deployment), dutyDate);
+  const allowed = deployment.shift === "B" ? ["B", "C"].includes(handover?.unlockedThrough) : handover?.unlockedThrough === "C";
+  return { allowed, deployment, dutyDate, handover };
+}
+
+function lockedShiftMessage(deployment) {
+  const previous = deployment.shift === "B" ? "Shift A" : "Shift B";
+  const timing = DEPLOYMENT_SHIFT_DETAILS[deployment.shift]?.time;
+  return `${deployment.shift === "B" ? "Shift B" : "Shift C"} is locked at ${deployment.posting}. ${previous} must complete attendance and explicitly reveal this shift first. Its scheduled time (${timing}) does not unlock access by itself.`;
+}
+
 function reportRange(period, date) {
   const selected = /^\d{4}-\d{2}-\d{2}$/.test(date || "") ? date : localDateKey(Date.now());
   const start = period === "month" ? `${selected.slice(0, 7)}-01` : selected;
@@ -178,8 +214,13 @@ app.post(
     if (!user) {
       return res.status(401).json({ error: "This mobile number is not registered" });
     }
-    // Shift B has no independent entry point. The Shift A constable opens one
-    // handover window after completing their own attendance check-in.
+    const deploymentAccess = await getDeploymentShiftAccess(user);
+    // Deployment Shift B/C access is never based on clock time alone. The
+    // preceding shift must explicitly release the exact place of posting.
+    if (!deploymentAccess.allowed) {
+      return res.status(403).json({ error: lockedShiftMessage(deploymentAccess.deployment) });
+    }
+    // Preserve the original two-constable handover for the legacy test pair.
     if (user.id === SHIFT_B_CONSTABLE_ID && !user.onDuty) {
       return res.status(403).json({ error: "Shift B is locked. Ask the Shift A constable to reveal Shift B after their check-in." });
     }
@@ -195,24 +236,38 @@ app.post(
   }),
 );
 
-/** Shift A explicitly opens exactly one Shift B check-in window. */
-app.post(
-  "/api/duty/reveal-shift-b",
-  auth,
-  requireEmployee,
-  wrap(async (req, res) => {
-    if (req.user.id !== SHIFT_A_CONSTABLE_ID) {
-      return res.status(403).json({ error: "Only the Shift A constable can reveal Shift B" });
-    }
-    if (!hasActiveAttendance(req.user)) {
-      return res.status(409).json({ error: "Complete your camera and GPS check-in before revealing Shift B" });
-    }
+async function revealNextShift(req, res) {
+  if (!hasActiveAttendance(req.user)) {
+    return res.status(409).json({ error: "Complete your camera and GPS check-in before revealing the next shift." });
+  }
+
+  const deployment = deploymentForPhone(req.user.phone);
+  if (deployment && ["A", "B"].includes(deployment.shift)) {
+    const nextShift = deployment.shift === "A" ? "B" : "C";
+    const dutyDate = deploymentDutyDate(deployment.shift);
+    await releaseShiftHandover({
+      postingKey: deploymentPostingKey(deployment),
+      dutyDate,
+      unlockedThrough: nextShift,
+      releasedBy: req.user.id,
+    });
+    return res.json({ ok: true, nextShift, message: `${nextShift === "B" ? "Shift B" : "Shift C"} is now unlocked at ${deployment.posting}.` });
+  }
+
+  // Legacy constable pair retained for the pre-deployment test accounts.
+  if (req.user.id === SHIFT_A_CONSTABLE_ID) {
     const shiftB = await getEmployee(SHIFT_B_CONSTABLE_ID);
     if (!shiftB) return res.status(500).json({ error: "Shift B constable is not available yet. Please try again." });
     await updateEmployee(SHIFT_B_CONSTABLE_ID, { onDuty: true });
-    res.json({ ok: true, message: "Shift B has been revealed and can now log in" });
-  }),
-);
+    return res.json({ ok: true, nextShift: "B", message: "Shift B is now unlocked and can log in." });
+  }
+
+  return res.status(403).json({ error: "Only Shift A or Shift B at an assigned posting can reveal the next shift." });
+}
+
+app.post("/api/duty/reveal-next-shift", auth, requireEmployee, wrap(revealNextShift));
+// Keeps older clients working while they migrate to the generic A→B→C route.
+app.post("/api/duty/reveal-shift-b", auth, requireEmployee, wrap(revealNextShift));
 
 app.post(
   "/api/auth/logout",
@@ -297,9 +352,13 @@ app.post(
       patch.lastLocation = { lat: checkIn.lat, lng: checkIn.lng, accuracy: checkIn.accuracy, at: checkIn.at };
     }
     const emp = await updateEmployee(req.user.id, patch);
-    // A fresh Shift A attendance record starts a new handover cycle. If Shift
-    // B had been revealed earlier but did not use it, that old permission is
-    // cancelled; Shift A must explicitly reveal the new Shift B handover.
+    // A fresh A check-in starts a new A→B→C cycle for that exact posting.
+    // Any earlier B/C release is cancelled until A explicitly reveals again.
+    const deployment = deploymentForPhone(req.user.phone);
+    if (deployment?.shift === "A") {
+      await resetShiftHandover(deploymentPostingKey(deployment), deploymentDutyDate("A"));
+    }
+    // Preserve the original test pair's one-off handover behaviour.
     if (req.user.id === SHIFT_A_CONSTABLE_ID) {
       await updateEmployee(SHIFT_B_CONSTABLE_ID, { onDuty: false });
     }
