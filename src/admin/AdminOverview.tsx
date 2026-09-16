@@ -12,6 +12,7 @@ export default function AdminOverview() {
   const [employees, setEmployees] = useState<EmployeeUser[]>([]);
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState("all");
+  const [shift, setShift] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -34,9 +35,22 @@ export default function AdminOverview() {
   const onDutyCount = employees.filter((employee) => employee.onDuty).length;
   const title = user?.role === "dcp" ? "Deputy command monitoring" : "Command monitoring";
   const sectors = [...new Set(employees.map((employee) => employee.sector).filter((item): item is string => Boolean(item)))].sort();
+  const shiftOrder = ["Shift A", "Shift B", "Shift C", "Night shift"];
+  const shifts = [...new Set(employees.map((employee) => employee.shiftLabel).filter((item): item is string => Boolean(item)))].sort(
+    (a, b) => {
+      const aIndex = shiftOrder.indexOf(a);
+      const bIndex = shiftOrder.indexOf(b);
+      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+      if (aIndex === -1) return 1;
+      if (bIndex === -1) return -1;
+      return aIndex - bIndex;
+    },
+  );
   const visibleEmployees = employees.filter((employee) => {
     const haystack = `${employee.name} ${employee.code} ${employee.phone} ${employee.designation || ""} ${employee.sector || ""} ${employee.placeOfPosting || ""}`.toLowerCase();
-    return (sector === "all" || employee.sector === sector) && haystack.includes(query.trim().toLowerCase());
+    return (sector === "all" || employee.sector === sector) &&
+      (shift === "all" || employee.shiftLabel === shift) &&
+      haystack.includes(query.trim().toLowerCase());
   });
 
   return (
@@ -52,14 +66,18 @@ export default function AdminOverview() {
         <p className="text-sm text-muted-foreground">No worker records are available yet.</p>
       ) : (
         <>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
             <label className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search deployed employees" className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-3 text-sm outline-none focus:border-azure" />
             </label>
-            <select value={sector} onChange={(event) => setSector(event.target.value)} className="h-10 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-azure">
+            <select value={sector} onChange={(event) => setSector(event.target.value)} aria-label="Filter by sector" className="h-10 min-w-0 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-azure lg:min-w-64">
               <option value="all">All sectors</option>
               {sectors.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <select value={shift} onChange={(event) => setShift(event.target.value)} aria-label="Filter by shift" className="h-10 min-w-0 rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-azure lg:min-w-40">
+              <option value="all">All shifts</option>
+              {shifts.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
           <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft">
