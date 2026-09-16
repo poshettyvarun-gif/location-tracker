@@ -1,123 +1,23 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-
-export type PersonnelRank = "cp" | "dcp" | "acp" | "si" | "ci" | "inspector";
-
-export const RANK_LABEL: Record<PersonnelRank, string> = {
-  cp: "Commissioner of Police",
-  dcp: "Deputy Commissioner of Police",
-  acp: "Assistant Commissioner of Police",
-  si: "Sub-Inspector",
-  ci: "Circle Inspector",
-  inspector: "Police Inspector",
-};
-
-/** CP/DCP: unrestricted read/write. ACP: read-only. Inspector: scoped to their own constables (checked server-side). */
-export function hasFullAccess(role: string): boolean {
-  return role === "cp" || role === "dcp";
-}
-
-export function isReadOnly(role: string): boolean {
-  return role === "si" || role === "ci";
-}
-
-export interface EmployeeUser {
-  id: string;
-  code: string;
-  name: string;
-  phone: string;
-  role: "employee";
-  designation: string | null;
-  profilePhotoUrl: string | null;
-  /** Which Inspector manages this constable — null if unassigned. */
-  inspectorId: string | null;
-  /** Only present on admin-area list/detail responses, resolved server-side for display. */
-  inspectorName?: string | null;
-  shiftSlot: "morning" | "afternoon" | "night" | null;
-  shiftLabel: string | null;
-  shiftTime?: string | null;
-  /** Bada Ganesh deployment sector, when the employee is on the 2026 roster. */
-  sector?: string | null;
-  placeOfPosting?: string | null;
-  canRevealShiftB: boolean;
-  canRevealNextShift: boolean;
-  nextShiftLabel: string | null;
-  assignedPlace: string | null;
-  onDuty: boolean;
-  lastLocation: { lat: number; lng: number; accuracy: number | null; at: number } | null;
-  lastCheckIn: {
-    photoId: string;
-    photoUrl: string;
-    lat: number | null;
-    lng: number | null;
-    accuracy: number | null;
-    locationVerified: boolean;
-    locationError: string | null;
-    at: number;
-    employeeCode: string;
-    employeeName: string;
-  } | null;
-}
-
-export interface PersonnelUser {
-  id: string;
-  code: string;
-  name: string;
-  phone: string;
-  role: PersonnelRank;
-  /** Only present on the personnel directory list, Inspector rows only. */
-  constableCount?: number;
-  teamMembers?: { id: string; name: string; role: PersonnelRank | "employee" }[];
-}
-
-export type CurrentUser = EmployeeUser | PersonnelUser;
-
-interface AuthState {
-  user: CurrentUser | null;
-  token: string | null;
-  loading: boolean;
-  login: (phone: string) => Promise<CurrentUser>;
-  logout: () => Promise<void>;
-  returnToLogin: () => void;
-  refresh: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthState | null>(null);
-const TOKEN_KEY = "command-dashboard-token";
-
-export async function apiFetch(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const res = await fetch(path, {
-    ...options,
-    cache: "no-store",
-    headers: {
-      ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || "Request failed");
-  }
-  return res.json();
-}
+import { useEffect, useState, type ReactNode } from "react";
+import { apiFetch, clearStoredToken, getStoredToken, storeToken } from "./api";
+import { AuthContext } from "./authStore";
+import type { CurrentUser } from "./types";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(() => getStoredToken());
+  const [loading, setLoading] = useState(() => Boolean(getStoredToken()));
 
   async function refresh() {
-    if (!localStorage.getItem(TOKEN_KEY)) {
+    if (!getStoredToken()) {
       setUser(null);
       setLoading(false);
       return;
     }
     try {
-      const me = await apiFetch("/api/me");
-      setUser(me);
+      setUser(await apiFetch("/api/me"));
     } catch {
-      localStorage.removeItem(TOKEN_KEY);
+      clearStoredToken();
       setToken(null);
       setUser(null);
     } finally {
@@ -126,20 +26,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    refresh();
-    // An employee session expires at the scheduled end of their shift. Polling
-    // keeps an already-open shared-device screen in sync without a reload.
-    const timer = window.setInterval(refresh, 60_000);
-    return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Delay bootstrap by one task so this initial server synchronization does
+    // not synchronously trigger a second render during the effect itself.
+    const initial = window.setTimeout(() => void refresh(), 0);
+    const timer = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
   }, []);
 
   async function login(phone: string) {
-    const data = await apiFetch("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ phone }),
-    });
-    localStorage.setItem(TOKEN_KEY, data.token);
+    const data = await apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ phone }) });
+    storeToken(data.token);
     setToken(data.token);
     setUser(data.user);
     return data.user as CurrentUser;
@@ -147,32 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function logout() {
     await apiFetch("/api/auth/logout", { method: "POST" });
-    localStorage.removeItem(TOKEN_KEY);
+    clearStoredToken();
     setToken(null);
     setUser(null);
   }
 
-  /**
-   * Clears this device's view only — no call to /api/auth/logout, so it
-   * doesn't end a valid daily attendance record. Used after a successful
-   * check-in to return a shared device to the login screen; the worker stays
-   * on duty until the 24-hour attendance window ends.
-   */
   function returnToLogin() {
-    localStorage.removeItem(TOKEN_KEY);
+    clearStoredToken();
     setToken(null);
     setUser(null);
   }
 
-  return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, returnToLogin, refresh }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  return <AuthContext.Provider value={{ user, token, loading, login, logout, returnToLogin, refresh }}>{children}</AuthContext.Provider>;
 }

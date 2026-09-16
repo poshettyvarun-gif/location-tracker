@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, MapPin, Search, UserRound } from "lucide-react";
-import { apiFetch, useAuth } from "../auth/AuthContext";
-import type { EmployeeUser } from "../auth/AuthContext";
+import { apiFetch } from "../auth/api";
+import type { EmployeeUser } from "../auth/types";
+import { useAuth } from "../auth/useAuth";
 
 const POLL_MS = 8000;
 

@@ -3,8 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, MapPin, Radio } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import { apiFetch } from "../auth/AuthContext";
-import type { EmployeeUser } from "../auth/AuthContext";
+import { apiFetch } from "../auth/api";
+import type { EmployeeUser } from "../auth/types";
 
 const POLL_MS = 5000;
 
@@ -12,13 +12,17 @@ export default function AdminEmployeeDetail() {
   const { id } = useParams<{ id: string }>();
   const [employee, setEmployee] = useState<EmployeeUser | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [refreshedAt, setRefreshedAt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const data = await apiFetch(`/api/admin/employees/${id}`);
-        if (!cancelled) setEmployee(data);
+        if (!cancelled) {
+          setEmployee(data);
+          setRefreshedAt(Date.now());
+        }
       } catch (error) {
         if (!cancelled && error instanceof Error && error.message.toLowerCase().includes("not found")) setNotFound(true);
       }
@@ -35,7 +39,7 @@ export default function AdminEmployeeDetail() {
   if (!employee) return <div className="p-10 text-sm text-muted-foreground">Loading worker details…</div>;
 
   const location = employee.lastLocation;
-  const isLive = Boolean(location && Date.now() - location.at < 30_000);
+  const isLive = Boolean(location && refreshedAt - location.at < 30_000);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">

@@ -3,8 +3,8 @@ import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap, ZoomCont
 import { divIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { ExternalLink, Radio, Users, X } from "lucide-react";
-import { apiFetch } from "../auth/AuthContext";
-import type { EmployeeUser } from "../auth/AuthContext";
+import { apiFetch } from "../auth/api";
+import type { EmployeeUser } from "../auth/types";
 
 const HYDERABAD_CENTER: [number, number] = [17.385, 78.4867];
 const POLL_MS = 6000;

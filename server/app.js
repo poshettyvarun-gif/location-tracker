@@ -45,6 +45,7 @@ app.use("/api", (_req, res, next) => {
 const MAX_CONSTABLES_PER_INSPECTOR = 10;
 const SHIFT_A_CONSTABLE_ID = "worker-constable-1";
 const SHIFT_B_CONSTABLE_ID = "worker-constable-shift-b-1";
+const LEGACY_HANDOVER_POSTING = "legacy::constable-shifts";
 // Attendance is a daily proof-of-presence, not a permanent account state.
 // A worker remains on duty for 24 hours after a successful camera check-in;
 // then a new photo + GPS check-in is required for the next attendance day.
@@ -180,11 +181,47 @@ function deploymentPostingKey(deployment) {
 
 async function getDeploymentShiftAccess(user) {
   const deployment = deploymentForPhone(user.phone);
+  if (!deployment && user.id === SHIFT_B_CONSTABLE_ID) {
+    const dutyDate = localDateKey(Date.now());
+    const handover = await getShiftHandover(LEGACY_HANDOVER_POSTING, dutyDate);
+    return {
+      allowed: handover?.unlockedThrough === "B",
+      deployment: null,
+      dutyDate,
+      handover,
+      error: "Shift B is locked. Shift A must complete attendance and reveal Shift B first.",
+    };
+  }
   if (!deployment || !["B", "C"].includes(deployment.shift)) return { allowed: true, deployment };
   const dutyDate = deploymentDutyDate(deployment.shift);
   const handover = await getShiftHandover(deploymentPostingKey(deployment), dutyDate);
   const allowed = deployment.shift === "B" ? ["B", "C"].includes(handover?.unlockedThrough) : handover?.unlockedThrough === "C";
-  return { allowed, deployment, dutyDate, handover };
+  return { allowed, deployment, dutyDate, handover, error: allowed ? null : lockedShiftMessage(deployment) };
+}
+
+async function requireCurrentShiftAccess(user) {
+  const access = await getDeploymentShiftAccess(user);
+  if (!access.allowed) throw Object.assign(new Error(access.error || lockedShiftMessage(access.deployment)), { status: 403 });
+  return access;
+}
+
+function readCoordinates({ lat, lng, accuracy }, { required = false } = {}) {
+  const hasLatitude = lat !== undefined && lat !== null && lat !== "";
+  const hasLongitude = lng !== undefined && lng !== null && lng !== "";
+  if (!hasLatitude && !hasLongitude) {
+    if (required) throw Object.assign(new Error("lat/lng required"), { status: 400 });
+    return null;
+  }
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  const locationAccuracy = accuracy === undefined || accuracy === null || accuracy === "" ? null : Number(accuracy);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    throw Object.assign(new Error("Enter valid latitude and longitude values"), { status: 400 });
+  }
+  if (locationAccuracy !== null && (!Number.isFinite(locationAccuracy) || locationAccuracy < 0)) {
+    throw Object.assign(new Error("Enter a valid location accuracy"), { status: 400 });
+  }
+  return { lat: latitude, lng: longitude, accuracy: locationAccuracy };
 }
 
 function lockedShiftMessage(deployment) {
@@ -217,13 +254,7 @@ app.post(
     const deploymentAccess = await getDeploymentShiftAccess(user);
     // Deployment Shift B/C access is never based on clock time alone. The
     // preceding shift must explicitly release the exact place of posting.
-    if (!deploymentAccess.allowed) {
-      return res.status(403).json({ error: lockedShiftMessage(deploymentAccess.deployment) });
-    }
-    // Preserve the original two-constable handover for the legacy test pair.
-    if (user.id === SHIFT_B_CONSTABLE_ID && !user.onDuty) {
-      return res.status(403).json({ error: "Shift B is locked. Ask the Shift A constable to reveal Shift B after their check-in." });
-    }
+    if (!deploymentAccess.allowed) return res.status(403).json({ error: deploymentAccess.error || lockedShiftMessage(deploymentAccess.deployment) });
 
     // Phone login only opens the field dashboard. Attendance begins only
     // after the worker submits a fresh camera photo and GPS location.
@@ -237,6 +268,7 @@ app.post(
 );
 
 async function revealNextShift(req, res) {
+  await requireCurrentShiftAccess(req.user);
   if (!hasActiveAttendance(req.user)) {
     return res.status(409).json({ error: "Complete your camera and GPS check-in before revealing the next shift." });
   }
@@ -254,11 +286,14 @@ async function revealNextShift(req, res) {
     return res.json({ ok: true, nextShift, message: `${nextShift === "B" ? "Shift B" : "Shift C"} is now unlocked at ${deployment.posting}.` });
   }
 
-  // Legacy constable pair retained for the pre-deployment test accounts.
+  // The original two-constable pair uses the same persisted handover record.
   if (req.user.id === SHIFT_A_CONSTABLE_ID) {
-    const shiftB = await getEmployee(SHIFT_B_CONSTABLE_ID);
-    if (!shiftB) return res.status(500).json({ error: "Shift B constable is not available yet. Please try again." });
-    await updateEmployee(SHIFT_B_CONSTABLE_ID, { onDuty: true });
+    await releaseShiftHandover({
+      postingKey: LEGACY_HANDOVER_POSTING,
+      dutyDate: localDateKey(Date.now()),
+      unlockedThrough: "B",
+      releasedBy: req.user.id,
+    });
     return res.json({ ok: true, nextShift: "B", message: "Shift B is now unlocked and can log in." });
   }
 
@@ -319,6 +354,8 @@ app.post(
   wrap(async (req, res) => {
     const { lat, lng, accuracy, locationError } = req.body || {};
     if (!req.file) return res.status(400).json({ error: "Photo is required" });
+    await requireCurrentShiftAccess(req.user);
+    const coordinates = readCoordinates({ lat, lng, accuracy });
 
     const photoId = `${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
     const mime = req.file.mimetype || "image/jpeg";
@@ -328,16 +365,16 @@ app.post(
     const previous = req.user.lastCheckIn?.photoId;
     if (previous) await deletePhoto(previous);
 
-    const hasLocation = Boolean(lat && lng);
+    const hasLocation = Boolean(coordinates);
     // A check-in without GPS is accepted but permanently marked unverified, so
     // admin can tell it apart from a location-confirmed one rather than it
     // silently looking the same.
     const checkIn = {
       photoId,
       photoUrl: `/api/photos/${photoId}`,
-      lat: hasLocation ? Number(lat) : null,
-      lng: hasLocation ? Number(lng) : null,
-      accuracy: hasLocation && accuracy ? Number(accuracy) : null,
+      lat: coordinates?.lat ?? null,
+      lng: coordinates?.lng ?? null,
+      accuracy: coordinates?.accuracy ?? null,
       locationVerified: hasLocation,
       locationError: hasLocation ? null : locationError || "Location unavailable",
       at: Date.now(),
@@ -345,9 +382,7 @@ app.post(
       employeeName: req.user.name,
     };
 
-    // The `onDuty` field is only a one-time entry gate for Shift B. Attendance
-    // itself is calculated from the current 24-hour check-in record.
-    const patch = { onDuty: req.user.id === SHIFT_B_CONSTABLE_ID ? false : true, lastCheckIn: checkIn };
+    const patch = { onDuty: true, lastCheckIn: checkIn };
     if (hasLocation) {
       patch.lastLocation = { lat: checkIn.lat, lng: checkIn.lng, accuracy: checkIn.accuracy, at: checkIn.at };
     }
@@ -358,9 +393,9 @@ app.post(
     if (deployment?.shift === "A") {
       await resetShiftHandover(deploymentPostingKey(deployment), deploymentDutyDate("A"));
     }
-    // Preserve the original test pair's one-off handover behaviour.
+    // A new Shift A check-in also begins a new legacy two-shift cycle.
     if (req.user.id === SHIFT_A_CONSTABLE_ID) {
-      await updateEmployee(SHIFT_B_CONSTABLE_ID, { onDuty: false });
+      await resetShiftHandover(LEGACY_HANDOVER_POSTING, localDateKey(Date.now()));
     }
     res.json(publicEmployee(emp));
   }),
@@ -372,15 +407,16 @@ app.post(
   requireEmployee,
   wrap(async (req, res) => {
     const { lat, lng, accuracy } = req.body || {};
-    if (!lat || !lng) return res.status(400).json({ error: "lat/lng required" });
+    const coordinates = readCoordinates({ lat, lng, accuracy }, { required: true });
+    await requireCurrentShiftAccess(req.user);
     if (!hasActiveAttendance(req.user)) {
       return res.status(409).json({ error: "A new camera and GPS check-in is required before sharing live location" });
     }
     const emp = await updateEmployee(req.user.id, {
       lastLocation: {
-        lat: Number(lat),
-        lng: Number(lng),
-        accuracy: accuracy ? Number(accuracy) : null,
+        lat: coordinates.lat,
+        lng: coordinates.lng,
+        accuracy: coordinates.accuracy,
         at: Date.now(),
       },
     });
@@ -717,8 +753,9 @@ app.delete(
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: err?.message || "Server error" });
+  const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+  if (status >= 500) console.error(err);
+  res.status(status).json({ error: err?.message || "Server error" });
 });
 
 export default app;

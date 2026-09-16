@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { AuthProvider } from "./auth/AuthContext";
+import { useAuth } from "./auth/useAuth";
 import RequireRole from "./auth/RequireRole";
 import LoginPage from "./auth/LoginPage";
 import AdminLayout from "./admin/AdminLayout";

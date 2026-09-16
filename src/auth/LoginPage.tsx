@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, LockKeyhole, Smartphone } from "lucide-react";
-import { useAuth } from "./AuthContext";
+import { useAuth } from "./useAuth";
 
 export default function LoginPage() {
   const { login } = useAuth();

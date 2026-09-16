@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Outlet } from "react-router-dom";
 import { ClipboardList, LayoutDashboard, LogOut, MapPinned, Menu, Shield, X } from "lucide-react";
-import { useAuth, RANK_LABEL, type PersonnelRank } from "../auth/AuthContext";
+import { RANK_LABEL, type PersonnelRank } from "../auth/types";
+import { useAuth } from "../auth/useAuth";
 
 const NAV_LINK_CLASS = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
@@ -33,12 +34,7 @@ const DASHBOARD_SHELL: Record<PersonnelRank, { title: string; subtitle: string; 
 
 export default function AdminLayout() {
   const { user, logout } = useAuth();
-  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // Close the drawer on every navigation so it doesn't stay open after
-  // tapping a link on a phone.
-  useEffect(() => setSidebarOpen(false), [location.pathname]);
 
   // AdminLayout only ever renders for the admin area (RequireRole guards
   // this), so role here is always a PersonnelRank at runtime even though the
@@ -94,19 +90,19 @@ export default function AdminLayout() {
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">
-          <NavLink to="/admin" end className={NAV_LINK_CLASS}>
+          <NavLink to="/admin" end className={NAV_LINK_CLASS} onClick={() => setSidebarOpen(false)}>
             <LayoutDashboard className="h-4 w-4 shrink-0" />
             {shell.employees}
           </NavLink>
-          <NavLink to="/admin/attendance" className={NAV_LINK_CLASS}>
+          <NavLink to="/admin/attendance" className={NAV_LINK_CLASS} onClick={() => setSidebarOpen(false)}>
             <ClipboardList className="h-4 w-4 shrink-0" />
             Attendance report
           </NavLink>
-          <NavLink to="/admin/deployment" className={NAV_LINK_CLASS}>
+          <NavLink to="/admin/deployment" className={NAV_LINK_CLASS} onClick={() => setSidebarOpen(false)}>
             <ClipboardList className="h-4 w-4 shrink-0" />
             Deployment plan
           </NavLink>
-          <NavLink to="/admin/map" className={NAV_LINK_CLASS}>
+          <NavLink to="/admin/map" className={NAV_LINK_CLASS} onClick={() => setSidebarOpen(false)}>
             <MapPinned className="h-4 w-4 shrink-0" />
             {shell.map}
           </NavLink>

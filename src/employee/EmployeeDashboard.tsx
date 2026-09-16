@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Camera, CheckCircle2, LogOut, MapPin, RotateCcw, Shield, ShieldCheck, Unlock, VideoOff } from "lucide-react";
-import { useAuth, apiFetch, type EmployeeUser } from "../auth/AuthContext";
+import { apiFetch } from "../auth/api";
+import type { EmployeeUser } from "../auth/types";
+import { useAuth } from "../auth/useAuth";
 
 const SHIFT_LABEL: Record<string, string> = {
   morning: "Morning (06:00–14:00)",

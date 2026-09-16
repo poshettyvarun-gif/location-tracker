@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
-import { apiFetch } from "../auth/AuthContext";
+import { apiFetch } from "../auth/api";
 
 type Row = {
   id: string; name: string; code: string; designation: string; phone: string; shift: string | null; shiftWindow: string;
