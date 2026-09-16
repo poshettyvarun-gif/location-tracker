@@ -1,27 +1,13 @@
 import crypto from "node:crypto";
-import bcrypt from "bcryptjs";
 import { supabase, isSupabaseConfigured, PHOTO_BUCKET } from "./supabaseClient.js";
 import { PDF_DEPLOYMENT_ROSTER } from "./pdfDeploymentRoster.js";
-
-/** Shift slots form a fixed relief cycle: morning -> afternoon -> night -> morning (next day). */
-export const SHIFT_SLOTS = ["morning", "afternoon", "night"];
-
-export function nextSlot(slot) {
-  const i = SHIFT_SLOTS.indexOf(slot);
-  return i === -1 ? null : SHIFT_SLOTS[(i + 1) % SHIFT_SLOTS.length];
-}
-
-/** CP and DCP are the only monitor accounts. Everyone else is a field worker. */
-export const CREATABLE_RANKS = ["inspector", "si", "ci"];
-export const FIXED_RANKS = ["cp", "dcp", "acp"];
-export const ALL_RANKS = [...FIXED_RANKS, ...CREATABLE_RANKS];
 
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const SIGNED_URL_TTL_SECONDS = 60 * 60;
 // Phone number is the sole credential. Legacy password_hash remains required
 // by the old table schema, so every seed record can safely share this unused
 // non-authentication value instead of doing hundreds of expensive hashes.
-const LEGACY_NON_AUTH_PASSWORD_HASH = bcrypt.hashSync(crypto.randomUUID(), 10);
+const LEGACY_NON_AUTH_PASSWORD_HASH = crypto.createHash("sha256").update(crypto.randomUUID()).digest("hex");
 
 const SEED_PERSONNEL = [
   { id: "cp-1", rank: "cp", name: "Commissioner of Police", phone: "9704761116" },
@@ -91,7 +77,6 @@ const COLUMN_MAP = {
   lastCheckIn: "last_check_in",
   profilePhotoId: "profile_photo_id",
   inspectorId: "inspector_id",
-  supervisorInspectorId: "supervisor_inspector_id",
 };
 
 // `role` on a personnel row IS its rank column — kept as a separate in-memory
@@ -126,9 +111,7 @@ function fromEmployeeRow(row) {
     id: row.id,
     code: row.code,
     name: row.name,
-    username: row.username,
     phone: row.phone,
-    passwordHash: row.password_hash,
     role: "employee",
     designation: row.designation,
     profilePhotoId: row.profile_photo_id,
@@ -146,16 +129,9 @@ function fromPersonnelRow(row) {
     id: row.id,
     code: row.code,
     name: row.name,
-    username: row.username,
     phone: row.phone,
-    passwordHash: row.password_hash,
     role: row.rank,
-    supervisorInspectorId: row.supervisor_inspector_id,
   };
-}
-
-function isUniqueViolation(error) {
-  return error?.code === "23505";
 }
 
 // ---------------------------------------------------------------------------
@@ -344,73 +320,6 @@ export async function resetShiftHandover(postingKey, dutyDate) {
 // Personnel (CP / DCP / ACP / Inspector)
 // ---------------------------------------------------------------------------
 
-export async function listPersonnel() {
-  await ensureSeeded();
-  if (!isSupabaseConfigured) return [...mem.personnel.values()];
-  const { data, error } = await supabase.from("personnel").select("*").order("rank").order("name");
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return (data || []).map(fromPersonnelRow);
-}
-
-export async function listPersonnelByInspector(inspectorId) {
-  await ensureSeeded();
-  if (!isSupabaseConfigured) return [...mem.personnel.values()].filter((person) => person.supervisorInspectorId === inspectorId);
-  const { data, error } = await supabase.from("personnel").select("*").eq("supervisor_inspector_id", inspectorId).order("rank").order("name");
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return (data || []).map(fromPersonnelRow);
-}
-
-export async function getPersonnel(id) {
-  await ensureSeeded();
-  if (!isSupabaseConfigured) return mem.personnel.get(id) || null;
-  const { data } = await supabase.from("personnel").select("*").eq("id", id).maybeSingle();
-  return data ? fromPersonnelRow(data) : null;
-}
-
-/** CP/DCP-only: creates an ACP or Inspector account. CP/DCP themselves are fixed and never created here. */
-export async function createPersonnel({ name, username, password, rank, supervisorInspectorId = null }) {
-  await ensureSeeded();
-  const person = {
-    id: `${rank}-${crypto.randomUUID()}`,
-    code: rank.toUpperCase(),
-    name: name.trim(),
-    username: username.trim(),
-    passwordHash: bcrypt.hashSync(password, 10),
-    role: rank,
-    supervisorInspectorId,
-  };
-
-  if (!isSupabaseConfigured) {
-    const takenByPerson = [...mem.personnel.values()].some((p) => p.username === person.username);
-    const takenByEmployee = [...mem.employees.values()].some((e) => e.username === person.username);
-    if (takenByPerson || takenByEmployee) throw new Error("That username is already taken");
-    mem.personnel.set(person.id, person);
-    return person;
-  }
-
-  const { data, error } = await supabase.from("personnel").insert(toPersonnelRow(person)).select().maybeSingle();
-  if (error) {
-    if (isUniqueViolation(error)) throw new Error("That username is already taken");
-    throw new Error(`Supabase: ${error.message}`);
-  }
-  return fromPersonnelRow(data);
-}
-
-/** Permanently removes an ACP/Inspector account and their session. CP/DCP are protected by the route layer. */
-export async function deletePersonnel(id) {
-  if (!isSupabaseConfigured) {
-    if (!mem.personnel.has(id)) return false;
-    mem.personnel.delete(id);
-    for (const [token, s] of mem.sessions) if (s.userId === id) mem.sessions.delete(token);
-    return true;
-  }
-
-  await supabase.from("sessions").delete().eq("user_id", id);
-  const { error, count } = await supabase.from("personnel").delete({ count: "exact" }).eq("id", id);
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return (count ?? 0) > 0;
-}
-
 // ---------------------------------------------------------------------------
 // Employees (constables)
 // ---------------------------------------------------------------------------
@@ -423,62 +332,11 @@ export async function listEmployees() {
   return (data || []).map(fromEmployeeRow);
 }
 
-/** Employees managed by one specific Inspector — this is the whole of an Inspector's world. */
-export async function listEmployeesByInspector(inspectorId) {
-  await ensureSeeded();
-  if (!isSupabaseConfigured) {
-    return [...mem.employees.values()].filter((e) => e.inspectorId === inspectorId);
-  }
-  const { data, error } = await supabase.from("employees").select("*").eq("inspector_id", inspectorId).order("code");
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return (data || []).map(fromEmployeeRow);
-}
-
 export async function getEmployee(id) {
   await ensureSeeded();
   if (!isSupabaseConfigured) return mem.employees.get(id) || null;
   const { data } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
   return data ? fromEmployeeRow(data) : null;
-}
-
-/**
- * Creates one constable. `inspectorId` is who manages them — CP/DCP may set
- * this to any Inspector (or leave unassigned); an Inspector creating their
- * own constable always has it forced to themselves at the route layer.
- */
-export async function createEmployee({ name, username, password, code, designation, inspectorId, shiftSlot, assignedPlace }) {
-  await ensureSeeded();
-  const employee = {
-    id: `emp-${crypto.randomUUID()}`,
-    code: code?.trim() || `PC-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-    name: name.trim(),
-    username: username.trim(),
-    passwordHash: bcrypt.hashSync(password, 10),
-    role: "employee",
-    designation: designation?.trim() || null,
-    profilePhotoId: null,
-    inspectorId: inspectorId || null,
-    shiftSlot: shiftSlot || null,
-    assignedPlace: assignedPlace?.trim() || null,
-    onDuty: false,
-    lastLocation: null,
-    lastCheckIn: null,
-  };
-
-  if (!isSupabaseConfigured) {
-    const takenByEmployee = [...mem.employees.values()].some((e) => e.username === employee.username);
-    const takenByPerson = [...mem.personnel.values()].some((p) => p.username === employee.username);
-    if (takenByEmployee || takenByPerson) throw new Error("That username is already taken");
-    mem.employees.set(employee.id, employee);
-    return employee;
-  }
-
-  const { data, error } = await supabase.from("employees").insert(toEmployeeRow(employee)).select().maybeSingle();
-  if (error) {
-    if (isUniqueViolation(error)) throw new Error("That username is already taken");
-    throw new Error(`Supabase: ${error.message}`);
-  }
-  return fromEmployeeRow(data);
 }
 
 export async function updateEmployee(id, patch) {
@@ -493,38 +351,6 @@ export async function updateEmployee(id, patch) {
   const { data, error } = await supabase.from("employees").update(toEmployeeRow(patch)).eq("id", id).select().maybeSingle();
   if (error) throw new Error(`Supabase: ${error.message}`);
   return data ? fromEmployeeRow(data) : null;
-}
-
-/** Permanently removes the employee's account, session, check-in photo, and profile photo. Cannot be undone. */
-export async function deleteEmployee(id) {
-  const existing = await getEmployee(id);
-  if (!existing) return false;
-  if (existing.lastCheckIn?.photoId) await deletePhoto(existing.lastCheckIn.photoId);
-  if (existing.profilePhotoId) await deletePhoto(existing.profilePhotoId);
-
-  if (!isSupabaseConfigured) {
-    mem.employees.delete(id);
-    for (const [token, s] of mem.sessions) if (s.userId === id) mem.sessions.delete(token);
-    return true;
-  }
-
-  await supabase.from("sessions").delete().eq("user_id", id);
-  const { error } = await supabase.from("employees").delete().eq("id", id);
-  if (error) throw new Error(`Supabase: ${error.message}`);
-  return true;
-}
-
-/** Who currently occupies the slot after `slot` in the relief cycle, and are they on duty? */
-export async function nextSlotOccupantOnDuty(slot) {
-  const target = nextSlot(slot);
-  if (!target) return false;
-  const employees = await listEmployees();
-  return Boolean(employees.find((e) => e.shiftSlot === target)?.onDuty);
-}
-
-export async function employeeForSlot(slot) {
-  const employees = await listEmployees();
-  return employees.find((e) => e.shiftSlot === slot) || null;
 }
 
 // ---------------------------------------------------------------------------

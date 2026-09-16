@@ -11,9 +11,9 @@ export const RANK_LABEL: Record<PersonnelRank, string> = {
 
 export interface EmployeeUser {
   id: string; code: string; name: string; phone: string; role: "employee";
-  designation: string | null; profilePhotoUrl: string | null; inspectorId: string | null; inspectorName?: string | null;
+  designation: string | null; profilePhotoUrl: string | null;
   shiftSlot: "morning" | "afternoon" | "night" | null; shiftLabel: string | null; shiftTime?: string | null;
-  sector?: string | null; placeOfPosting?: string | null; canRevealShiftB: boolean; canRevealNextShift: boolean;
+  sector?: string | null; placeOfPosting?: string | null; canRevealNextShift: boolean;
   nextShiftLabel: string | null; assignedPlace: string | null; onDuty: boolean;
   lastLocation: { lat: number; lng: number; accuracy: number | null; at: number } | null;
   lastCheckIn: { photoId: string; photoUrl: string; lat: number | null; lng: number | null; accuracy: number | null; locationVerified: boolean; locationError: string | null; at: number; employeeCode: string; employeeName: string } | null;
@@ -21,7 +21,6 @@ export interface EmployeeUser {
 
 export interface PersonnelUser {
   id: string; code: string; name: string; phone: string; role: PersonnelRank;
-  constableCount?: number; teamMembers?: { id: string; name: string; role: PersonnelRank | "employee" }[];
 }
 
 export type CurrentUser = EmployeeUser | PersonnelUser;

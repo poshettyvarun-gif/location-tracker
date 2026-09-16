@@ -1,26 +1,21 @@
-# Command Dashboard — Duty Tracking with a Rank Hierarchy
+# Hyderabad City Police Attendance Dashboard
 
-An admin dashboard and a constable dashboard for tracking field officers: a
-command structure (CP → DCP → ACP → Inspector → Constable) assigns each
-constable a location, the constable checks in there with a photo (GPS captured
-automatically), and command can see each constable's live location. Shifts are
-time-bound: morning (06:00–14:00), afternoon (14:00–22:00), and night
-(22:00–06:00), in Asia/Kolkata time by default.
+Phone-based attendance and deployment monitoring for the imported Bandobust
+roster. CP and DCP use a read-only command dashboard. Every other registered
+officer uses the camera/GPS check-in screen.
 
 **Ranks and access:**
 
 | Rank | Count | Access |
 | --- | --- | --- |
-| CP | 1 (fixed) | Full visibility and full create/edit/delete, everywhere. |
-| DCP | 1 (fixed) | Same as CP. |
-| ACP | as many as CP/DCP create | Sees everything CP/DCP sees — every constable, which Inspector runs them, headcounts per Inspector — but **read-only**: no create, edit, or delete. |
-| Inspector | as many as CP/DCP create | Manages only their **own** constables (create, edit, delete), up to **10** at a time. Cannot see or touch another Inspector's constables — the API returns 404, not 403, so existence isn't leaked either. |
-| Constable / Employee | created by their own Inspector | Self-service only: **Today's Employee Dashboard** — camera + GPS check-in. No admin access at all. |
+| CP | 2 fixed phone accounts | Read-only force-wide monitoring, reports, deployment plan and map. |
+| DCP | 1 fixed phone account | Same monitoring access as CP. |
+| ACP / Inspector / SI / CI / Constable | Imported roster | Camera and GPS attendance check-in. No admin access. |
 
 ## Stack
 
 - **Frontend:** React 19 · TypeScript · Vite · Tailwind CSS 4 · react-router-dom · Leaflet / react-leaflet · lucide-react · sonner
-- **Backend:** Express (runs as a Vercel serverless function in production) · Supabase (Postgres + Storage) via `@supabase/supabase-js` · multer · bcryptjs
+- **Backend:** Express (runs as a Vercel serverless function in production) · Supabase (Postgres + Storage) via `@supabase/supabase-js` · multer
 
 ## Getting started
 
@@ -35,18 +30,15 @@ Open http://localhost:5174 and sign in.
 
 Locally, no database is needed — with no Supabase env vars set, the server
 keeps everything in memory and **resets on every restart**. That's fine for
-quick UI iteration, but it is not the permanent mode described below; if you
-want to test real persistence (or the "delete stays deleted" behaviour)
-locally, follow the Supabase setup and put the credentials in `.env`
+quick UI iteration, but it is not the permanent mode described below. To test
+real persistence locally, follow the Supabase setup and put the credentials in `.env`
 (`cp .env.example .env`) — `npm run server` loads it automatically.
 
 ## Deploying to Vercel, with permanent storage via Supabase
 
-Employee records, sessions, and check-in photos live in a Supabase Postgres
-project. Data is **permanent**: it survives restarts and redeploys, and the
-app never recreates a record on its own. The only way anything disappears is
-an admin explicitly using **Delete employee** (permanent, irreversible) or
-**Clear history** (wipes a check-in, keeps the account) in the dashboard.
+Employee records, sessions, and check-in photos live in Supabase Postgres and
+Storage. Data survives restarts and redeploys. The deployed dashboard does not
+provide staff creation, editing or deletion controls.
 
 ### 1. Create the Supabase project
 
@@ -100,21 +92,16 @@ the defaults.
 | --- | --- |
 | `SUPABASE_URL` | from step 3 |
 | `SUPABASE_SERVICE_ROLE_KEY` | from step 3 |
-| `ADMIN_PASSWORD`, `ADMIN2_PASSWORD` | real passwords, not the defaults — these are the CP and DCP logins |
+| `SHIFT_TIME_ZONE` | optional; defaults to `Asia/Kolkata` |
 
-That's it — 4 variables total. ACP, Inspector, and Constable accounts are
-**not** configured here; see "Login details" below for how those get created.
-
-See `.env.example` for the full list. Skipping the password vars leaves the
-app on the values published in this README — anyone who reads this file can
-log in.
+CP, DCP and worker access is phone-number based; no username/password
+environment variables are used.
 
 ### 6. Redeploy
 
-The first request after deploy seeds the CP and DCP accounts into Supabase
-(visible in **Table Editor** → `personnel`). From then on, seeding never runs
-again for this project — deleting an account is permanent even across future
-redeploys.
+The first request after deploy seeds the fixed CP and DCP accounts and imports
+the configured worker roster into Supabase. The records are then reused across
+future requests and deployments.
 
 ### Why Supabase and not a file
 
@@ -131,91 +118,35 @@ accurate to roughly 5–20m. On a desktop it falls back to Wi-Fi positioning,
 which is far coarser and on macOS often fails outright unless the browser is
 enabled under System Settings → Privacy & Security → Location Services.
 
-## Login details
+## Login
 
-Seeds **2 fixed accounts** (CP and DCP) and **zero ACP/Inspector/Constable
-accounts**.
-
-| Rank | Username | Password |
-| --- | --- | --- |
-| CP | `admin` | `Admin#2026` |
-| DCP | `admin2` | `Admin2#2026` |
-
-**Change both of these before any real deployment** via `ADMIN_PASSWORD` /
-`ADMIN2_PASSWORD` — the values above are published here and in the repo, so
-anyone who reads this file can log in on the defaults.
-
-Everyone else is created from inside the dashboard, not env vars:
-
-1. **ACP or Inspector accounts** — sign in as CP or DCP → **Personnel** →
-   **Add personnel**. Pick their rank, name, and a username + password (6+
-   characters) right there — that's the real login you hand them.
-2. **Constables** — sign in as CP, DCP, *or* an Inspector → **Employees** →
-   **Add employee**. An Inspector's new constable is automatically assigned to
-   them; CP/DCP can pick or later reassign which Inspector a constable reports
-   to (or leave it unassigned). An Inspector may have at most 10 constables.
-3. Tell each person their credentials directly. There's no invite email and no
-   self-signup.
-4. Assign a constable a shift (morning/afternoon/night) from their detail page.
-   New constables start unassigned.
+Every account signs in using its registered 10-digit mobile number. The fixed
+command numbers and imported worker roster are seeded by the API. There is no
+self-registration or in-app staff management.
 
 ## How it works
 
-**CP / DCP** — full command view and full control:
-- **Employees** (`/admin`) — every constable across every Inspector, their
-  on-duty status, shift, assigned location, and which Inspector runs them,
-  plus **Add employee** (optionally assigning an Inspector).
-- **Personnel** (`/admin/personnel`) — the org chart itself: every CP/DCP/
-  ACP/Inspector, with a live constable headcount per Inspector, plus **Add
-  personnel** to create a new ACP or Inspector. CP and DCP rows are marked
-  **Fixed** — they can't be deleted (there's always exactly one of each).
-  Deleting an Inspector who still has constables is blocked until you
-  reassign or delete those constables first.
-- **Employee detail** (`/admin/employees/:id`) — live location on a map (polls
-  every 5s), a text field to record the location you've assigned them (over
-  radio/phone — this just logs it), shift assignment, their last check-in
-  photo + GPS, an emergency "force end shift" override, and two distinct
-  destructive actions:
-  - **Clear history** — deletes their last check-in (photo included) and
-    location, keeps their account and login working.
-  - **Delete employee** (Danger zone, type their name to confirm) —
-    permanently removes their account, login, session, and photo. This does
-    not come back on a redeploy or restart.
-- **Live Map** (`/admin/map`) — every on-duty constable's last known location
-  plotted at once, across the whole force.
+**CP / DCP** — read-only monitoring of all deployed workers, including sector
+and shift filters, worker details, daily/monthly attendance PDFs, deployment
+plan and situation map.
 
-**ACP** — the same **Employees**, **Personnel**, and **Live Map** views as
-CP/DCP, but every create/edit/delete control is hidden and the API rejects
-those calls even if attempted directly. A banner on each page makes the
-read-only status explicit.
-
-**Inspector** — the **Employees** and **Live Map** views are scoped to just
-their own constables; the **Personnel** link is hidden entirely (Inspectors
-don't see the org chart, only their own slice of it). Opening another
-Inspector's constable by URL returns a 404, the same response as a
-nonexistent ID, so an Inspector can't tell whether a record exists elsewhere.
-An Inspector can manage up to 10 assigned constables.
-
-**Constable / Employee**
-- A constable can sign in only during their assigned shift. Signing in starts
-  a new daily attendance record, marks them on duty, and their session expires
-  automatically at the shift end. A previous day's login never counts as
-  today's attendance.
+**Field workers (ACP / Inspector / SI / CI / Constable)**
+- Phone login opens the check-in screen; attendance starts only after a fresh
+  photo and GPS submission and remains active for 24 hours.
 - Sees their assigned location, then takes/uploads a photo to check in — GPS
   is captured automatically at submit time and sent with the photo.
-- While on duty, the browser sends a location ping every 15s so command's view
+- While on duty, the browser sends a location ping every 15s so the Commissioner view
   stays live.
-- At the shift end, duty is cleared automatically and the constable must sign
-  in again for their next scheduled shift. An Inspector or CP/DCP can also
-  force-end duty early in an emergency.
+- Shift B and C remain locked until the preceding shift checks in and explicitly
+  reveals the next shift for that place of posting.
 
 ## Data & privacy notes (read before deploying for real)
 
 This app stores **photographs of identifiable people together with their
 real-time location**. Deploying it publicly makes that a live dataset, so:
 
-- **Change every password via environment variables.** The defaults are
-  published in this README and in the repo.
+- Phone-number-only login should be upgraded to OTP or managed-device
+  authentication before operational use.
 - Check-in photos and employee records sit **unencrypted** in Supabase.
   Anyone with the `service_role` key has full read/write access to
   everything — treat it like a root password.
@@ -246,7 +177,7 @@ supabase/
 src/
   App.tsx            Routes: /login, /admin/*, /employee
   auth/              AuthContext (ranks, permission helpers), LoginPage, RequireRole route guard
-  admin/             AdminLayout, AdminOverview, AdminPersonnel, AdminEmployeeDetail, AdminLiveMap
+  admin/             Monitoring, attendance, deployment, employee detail and map screens
   employee/          EmployeeDashboard (camera check-in + gated logout)
 vercel.json          SPA rewrites + /api routing
 .env.example         Every supported environment variable

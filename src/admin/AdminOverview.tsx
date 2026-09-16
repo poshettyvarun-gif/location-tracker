@@ -33,7 +33,7 @@ export default function AdminOverview() {
   }, []);
 
   const onDutyCount = employees.filter((employee) => employee.onDuty).length;
-  const title = user?.role === "dcp" ? "Deputy command monitoring" : "Command monitoring";
+  const title = user?.role === "dcp" ? "Deputy Commissioner monitoring" : "Command monitoring";
   const sectors = [...new Set(employees.map((employee) => employee.sector).filter((item): item is string => Boolean(item)))].sort();
   const shiftOrder = ["Shift A", "Shift B", "Shift C", "Night shift"];
   const shifts = [...new Set(employees.map((employee) => employee.shiftLabel).filter((item): item is string => Boolean(item)))].sort(

@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { apiFetch } from "../auth/api";
 
 type Row = {
@@ -34,7 +32,11 @@ export default function AdminAttendanceReport() {
   const visibleRows = sector === "all" ? rows : rows.filter((row) => row.sector === sector);
   const sectorLabel = sector === "all" ? "All sectors" : sector;
 
-  function downloadPdf() {
+  async function downloadPdf() {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
     const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const generatedAt = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
@@ -97,7 +99,7 @@ export default function AdminAttendanceReport() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 md:px-10">
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div><h1 className="font-display text-2xl font-semibold">Attendance report</h1><p className="mt-1 text-sm text-muted-foreground">Attendance for every worker: ACP, Inspector, SI, CI, and Constable.</p></div>
-        <button onClick={downloadPdf} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:w-auto"><Download className="h-4 w-4" />Download PDF</button>
+        <button onClick={() => void downloadPdf()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground sm:w-auto"><Download className="h-4 w-4" />Download PDF</button>
       </header>
       <div className="mb-5 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:flex sm:flex-wrap"><select value={period} onChange={(event) => setPeriod(event.target.value as "day" | "month")} className="min-w-0 rounded-xl border border-input bg-card px-3 py-2 text-sm"><option value="day">Daily</option><option value="month">Monthly</option></select><input type={period === "month" ? "month" : "date"} value={period === "month" ? selectedDate.slice(0, 7) : selectedDate} onChange={(event) => setSelectedDate(period === "month" ? `${event.target.value}-01` : event.target.value)} className="min-w-0 rounded-xl border border-input bg-card px-3 py-2 text-sm" /><select value={sector} onChange={(event) => setSector(event.target.value)} className="min-w-0 rounded-xl border border-input bg-card px-3 py-2 text-sm"><option value="all">All sectors</option>{sectors.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
       <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-soft"><table className="w-full min-w-[1240px] text-left text-sm"><thead><tr className="border-b border-border text-xs uppercase text-muted-foreground"><th className="px-4 py-3">Worker</th><th className="px-4 py-3">Designation</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Sector</th><th className="px-4 py-3">Shift</th><th className="px-4 py-3">Login</th><th className="px-4 py-3">Check-in</th><th className="px-4 py-3">Last GPS</th><th className="px-4 py-3">Status</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.id} className="border-b border-border last:border-0"><td className="px-4 py-3"><p className="font-medium">{row.name}</p><p className="text-xs text-muted-foreground">{row.code}</p></td><td className="px-4 py-3">{row.designation}</td><td className="px-4 py-3">{row.phone}</td><td className="px-4 py-3">{row.sector || "Not assigned"}</td><td className="px-4 py-3">{row.shift || "Not assigned"}<br /><span className="text-xs text-muted-foreground">{row.shiftWindow}</span></td><td className="px-4 py-3">{stamp(row.loginAt)}</td><td className="px-4 py-3">{stamp(row.checkInAt)}</td><td className="px-4 py-3">{row.lastLocation ? `${row.lastLocation.lat.toFixed(5)}, ${row.lastLocation.lng.toFixed(5)}` : "—"}</td><td className="px-4 py-3">{row.status}</td></tr>)}{visibleRows.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">No worker attendance data for this sector and period.</td></tr>}</tbody></table></div>
